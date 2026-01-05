@@ -1,6 +1,6 @@
 {
   "name": "slax-reader-web-bridge",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "slax reader bridge for slax-reader-client app integration",
   "type": "module",
   "main": "./dist/slax-reader-web-bridge.js",
