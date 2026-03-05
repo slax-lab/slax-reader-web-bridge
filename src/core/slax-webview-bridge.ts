@@ -17,15 +17,25 @@ export class SlaxWebViewBridge {
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-                initImageClickHandlers();
-                initBookmarkNotFoundHandlers();
+                this.onDOMReady();
             });
         } else {
-            initImageClickHandlers();
-            initBookmarkNotFoundHandlers();
+            this.onDOMReady();
         }
 
         console.log('[WebView Bridge] Bridge initialized successfully');
+    }
+
+    private onDOMReady() {
+        initImageClickHandlers();
+        initBookmarkNotFoundHandlers();
+
+        // 通知 native bridge DOM 已加载完成
+        postToNativeBridge({
+            type: 'domReady'
+        });
+
+        console.log('[WebView Bridge] DOM ready event sent to native bridge');
     }
 
     public postMessage = postToNativeBridge;
