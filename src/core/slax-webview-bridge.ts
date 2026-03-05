@@ -4,6 +4,7 @@ import { initImageClickHandlers } from '../features/images';
 import { highlightElement } from '../features/highlight';
 import { findMatchingElement } from '../features/search';
 import { scrollToAnchor, scrollToElement } from '../features/scroll';
+import { initBookmarkNotFoundHandlers } from '../features/bookmark-notfound';
 import { applyPolyfills } from '../utils/polyfill';
 
 export class SlaxWebViewBridge {
@@ -13,13 +14,15 @@ export class SlaxWebViewBridge {
 
     private init() {
         applyPolyfills();
-        
+
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 initImageClickHandlers();
+                initBookmarkNotFoundHandlers();
             });
         } else {
             initImageClickHandlers();
+            initBookmarkNotFoundHandlers();
         }
 
         console.log('[WebView Bridge] Bridge initialized successfully');
