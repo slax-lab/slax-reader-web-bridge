@@ -32,11 +32,13 @@ export function initImageClickHandlers() {
         // 清除可能影响显示的样式
         (img as HTMLElement).style.cssText = '';
 
+
         // 添加点击事件监听器
         img.addEventListener('click', (event) => {
+            const validSchemes = ['https://', 'http://', 'slaxstatics://', 'slaxstatic://'];
             const allImageUrls = Array.from(images)
                 .map(getImageUrl)
-                .filter(url => url && (url.startsWith("https://") || url.startsWith("http://")));
+                .filter(url => url && validSchemes.some(scheme => url.startsWith(scheme)));
 
             const currentTarget = event.currentTarget as Element;
             const clickedImageUrl = getImageUrl(currentTarget);
