@@ -149,4 +149,80 @@ describe('图片功能 (Images Feature)', () => {
             expect(img.style.cssFloat).toBe('left');
         });
     });
+
+    describe('unwrapImgAnchorsInTweet', () => {
+        function setupTweetBody(innerHTML: string) {
+            const div = document.createElement('div');
+            div.className = 'tweet';
+            div.innerHTML = innerHTML;
+            document.body.appendChild(div);
+        }
+
+        test('tweet 内容中 a 标签包裹的 img 应被解包', () => {
+            setupTweetBody('<a href="https://t.co/x"><img src="https://example.com/photo.jpg"></a>');
+
+            initImageClickHandlers();
+
+            const tweetDiv = document.body.querySelector('.tweet')!;
+            expect(tweetDiv.querySelector('a')).toBeNull();
+            expect(tweetDiv.querySelector('img')).not.toBeNull();
+        });
+
+        test('解包后 a 标签内的其他子节点也应保留', () => {
+            setupTweetBody('<a href="https://t.co/x"><img src="https://example.com/photo.jpg"><span>caption</span></a>');
+
+            initImageClickHandlers();
+
+            const tweetDiv = document.body.querySelector('.tweet')!;
+            expect(tweetDiv.querySelector('a')).toBeNull();
+            expect(tweetDiv.querySelector('img')).not.toBeNull();
+            expect(tweetDiv.querySelector('span')).not.toBeNull();
+        });
+
+        test('多个 a img 都应被解包', () => {
+            setupTweetBody(`
+                <a href="https://t.co/1"><img src="https://example.com/1.jpg"></a>
+                <a href="https://t.co/2"><img src="https://example.com/2.jpg"></a>
+            `);
+
+            initImageClickHandlers();
+
+            const tweetDiv = document.body.querySelector('.tweet')!;
+            expect(tweetDiv.querySelectorAll('a').length).toBe(0);
+            expect(tweetDiv.querySelectorAll('img').length).toBe(2);
+        });
+
+        test('非 tweet 内容中的 a img 不应被解包', () => {
+            const div = document.createElement('div');
+            div.className = 'article';
+            div.innerHTML = '<a href="https://example.com"><img src="https://example.com/photo.jpg"></a>';
+            document.body.appendChild(div);
+
+            initImageClickHandlers();
+
+            expect(div.querySelector('a')).not.toBeNull();
+            expect(div.querySelector('img')).not.toBeNull();
+        });
+
+        test('body 下第一个 div 没有 tweet class 时不处理', () => {
+            const div = document.createElement('div');
+            div.className = 'post';
+            div.innerHTML = '<a href="https://example.com"><img src="https://example.com/photo.jpg"></a>';
+            document.body.appendChild(div);
+
+            initImageClickHandlers();
+
+            expect(div.querySelector('a')).not.toBeNull();
+        });
+
+        test('不含 img 的 a 标签不应被影响', () => {
+            setupTweetBody('<a href="https://t.co/x">just text</a><img src="https://example.com/photo.jpg">');
+
+            initImageClickHandlers();
+
+            const tweetDiv = document.body.querySelector('.tweet')!;
+            expect(tweetDiv.querySelector('a')).not.toBeNull();
+            expect(tweetDiv.querySelector('a')!.textContent).toBe('just text');
+        });
+    });
 });

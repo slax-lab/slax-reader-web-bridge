@@ -74,9 +74,29 @@ function handleImageLoading(imgs: HTMLImageElement[]) {
 }
 
 /**
+ * 如果是 tweet 内容，移除包裹 img 的 a 标签（保留子内容）
+ */
+function unwrapImgAnchorsInTweet() {
+    const firstDiv = document.body?.querySelector(':scope > div');
+    if (!firstDiv?.classList.contains('tweet')) return;
+
+    document.querySelectorAll('a img').forEach(img => {
+        const anchor = img.closest('a');
+        if (!anchor) return;
+        const parent = anchor.parentNode;
+        if (!parent) return;
+        while (anchor.firstChild) {
+            parent.insertBefore(anchor.firstChild, anchor);
+        }
+        parent.removeChild(anchor);
+    });
+}
+
+/**
  * 初始化图片点击处理程序
  */
 export function initImageClickHandlers() {
+    unwrapImgAnchorsInTweet();
     const images = document.querySelectorAll('img, image');
     const htmlImages = Array.from(images).filter(img => img.tagName.toLowerCase() === 'img') as HTMLImageElement[];
 
