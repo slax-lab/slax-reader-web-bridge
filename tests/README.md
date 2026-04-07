@@ -16,15 +16,18 @@ npm test -- --watch
 
 ```
 tests/
-├── setup.ts                  # 全局测试配置和 Mock 初始化
-├── bridge.test.ts            # 基础 Bridge 通信测试
-├── slax-webview-bridge.test.ts # 主类初始化逻辑测试
-└── features/                 # 各个功能模块的测试
-    ├── content.test.ts       # 内容高度计算
-    ├── highlight.test.ts     # 文本高亮
-    ├── images.test.ts        # 图片点击处理
-    ├── scroll.test.ts        # 滚动定位
-    └── search.test.ts        # 搜索与模糊匹配
+├── setup.ts                         # 全局测试配置和 Mock 初始化
+├── bridge.test.ts                   # 基础 Bridge 通信测试
+├── slax-webview-bridge.test.ts      # 主类初始化与 selection 集成测试
+└── features/                        # 各个功能模块的测试
+    ├── content.test.ts              # 内容高度计算
+    ├── highlight.test.ts            # 文本高亮
+    ├── images.test.ts               # 图片点击处理
+    ├── scroll.test.ts               # 滚动定位
+    ├── search.test.ts               # 搜索与模糊匹配
+    ├── selection-monitor.test.ts    # 文本选区监听
+    ├── mark-renderer.test.ts        # 单个 mark 渲染
+    └── mark-manager.test.ts         # 批量 mark 管理
 ```
 
 ## 测试详情
@@ -41,12 +44,14 @@ tests/
   - iOS 平台消息发送 (`window.webkit.messageHandlers.NativeBridge.postMessage`)。
   - 未知平台或 Bridge 未注入时的错误处理。
 
-### 3. 主类初始化 (`slax-webview-bridge.test.ts`)
-- **目标**: 验证 `SlaxWebViewBridge` 类的实例化过程。
+### 3. 主类初始化与集成 (`slax-webview-bridge.test.ts`)
+- **目标**: 验证 `SlaxWebViewBridge` 类的实例化过程，以及 selection / mark 能力的桥接集成。
 - **覆盖场景**:
   - 验证 Polyfill 和图片点击监听器是否被调用。
   - 验证核心方法 (`postMessage`, `getContentHeight` 等) 是否正确暴露。
   - **生命周期**: 验证当 `document.readyState` 为 `loading` 时，是否正确等待 `DOMContentLoaded` 事件触发后再初始化。
+  - **Selection 集成**: 验证 `startSelectionMonitoring`, `stopSelectionMonitoring`, `drawMark`, `drawMarks`, `removeMark`, `setCurrentUserId` 等方法的基础行为。
+  - **Native 消息**: 验证 `markRendered`, `markClicked` 等消息是否通过统一 `postToNativeBridge` 协议发送。
 
 ### 4. 功能模块测试 (`features/`)
 
@@ -84,10 +89,34 @@ tests/
   - **可见性过滤**: 验证 `display: none` 或尺寸为 0 的隐藏元素是否被忽略。
   - **模糊匹配**: 验证当精确匹配失败时，是否能通过 Levenshtein 距离算法找到最接近的文本节点（容错匹配）。
 
+#### 文本选区监听 (`selection-monitor.test.ts`)
+- **测试点**: `SelectionMonitor`
+- **逻辑**:
+  - 验证 `start` / `stop` / `clearSelection` 的基础行为。
+  - 验证 `selectionchange` 防抖逻辑（300ms 内多次变化只回调一次）。
+  - 验证 collapsed selection 和容器外 selection 会被忽略。
+  - 验证回调数据中包含 `selection`, `paths`, `approx`, `position` 字段。
+
+#### 单个 Mark 渲染 (`mark-renderer.test.ts`)
+- **测试点**: `MarkRenderer`
+- **逻辑**:
+  - 验证文本 mark 是否正确包裹为 `slax-mark`。
+  - 验证 `stroke`, `comment`, `self-stroke`, `highlighted` 等 class 行为。
+  - 验证 `updateMark`, `removeMark`, `highlightMark`, `clearAllHighlights`, `clearAllMarks`, `getAllMarkIds` 的行为。
+
+#### 批量 Mark 管理 (`mark-manager.test.ts`)
+- **测试点**: `MarkManager`
+- **逻辑**:
+  - 验证 `drawMarks` 能正确处理 `MarkDetail` 数据。
+  - 验证相同 `source` 的 `LINE` / `COMMENT` 会被合并到同一 uuid。
+  - 验证 `REPLY` 不会单独生成 uuid。
+  - 验证 `removeMarkByUuid`, `clearAllMarks`, `getAllMarkIds` 等行为。
+
 ## 编写新测试
 
 如果您添加了新的 Feature，请遵循以下步骤：
 1. 在 `tests/features/` 下创建对应的 `.test.ts` 文件。
 2. 使用 `describe` 和 `test` 描述测试用例。
 3. 如果需要模拟 Native 交互，请 spy `src/bridge/native-bridge.ts` 中的 `postToNativeBridge` 或直接检查 `window.NativeBridge` 的 mock 调用。
-4. 运行 `npm test` 确保测试通过。
+4. 如果新功能依赖 DOM 结构，请尽量在单测中直接构造最小 DOM，而不是依赖 demo 页面。
+5. 运行 `npm test` 确保测试通过。
