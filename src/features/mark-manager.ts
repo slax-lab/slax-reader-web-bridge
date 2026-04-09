@@ -5,10 +5,11 @@ import type {
   MarkCommentInfo,
   MarkItemInfo,
   MarkPathItem,
+  MarkPathApprox,
   DrawMarksResult,
   UserList
 } from '../types/selection'
-import { generateUUID, deepEqual, getRangeTextWithNewlines } from '../utils/selection-utils'
+import { generateUUID, deepEqual, getRangeTextWithNewlines, getElementPath, getAllTextNodes } from '../utils/selection-utils'
 import { MarkRenderer } from './mark-renderer'
 
 /**
@@ -227,6 +228,208 @@ export class MarkManager {
     }
 
     return infoItems
+  }
+
+  /**
+   * 对当前选中区域执行划线处理
+   *
+   * 读取 window.getSelection() → 解析路径和 approx → 构建 MarkItemInfo → 渲染划线
+   *
+   * 注意：此方法不调用后端 API，只在本地渲染。
+   * 调用方在拿到后端 mark_id 后，可通过返回的 uuid 调用 updateMarkIdByUuid 更新关联信息。
+   *
+   * @param userId 当前用户ID（可选）
+   * @returns 新建 MarkItemInfo 的 uuid，若选区无效则返回 null
+   */
+  strokeCurrentSelection(userId?: number): string | null {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return null
+
+    const range = selection.getRangeAt(0)
+    if (range.collapsed) return null
+
+    if (!this.container.contains(range.commonAncestorContainer)) return null
+
+    // 解析路径
+    const paths = this.parseRangeToPaths(range)
+    if (paths.length === 0) return null
+
+    // 解析 approx
+    const approx = this.parseApproxFromRange(range)
+
+    // 检查是否已存在相同 source 的 MarkItemInfo
+    const existing = this.markItemInfos.find((info) => this.checkMarkSourceIsSame(info.source, paths))
+    if (existing) {
+      // 已存在则直接在已有条目上追加 stroke（幂等处理）
+      const alreadyStroked = existing.stroke.some((s) => s.userId === (userId ?? 0))
+      if (!alreadyStroked) {
+        existing.stroke.push({ mark_id: undefined, userId: userId ?? 0 })
+        this.drawSingleMarkItem(existing)
+      }
+      return existing.id
+    }
+
+    // 构建新的 MarkItemInfo
+    const uuid = generateUUID()
+    const infoItem: MarkItemInfo = {
+      id: uuid,
+      source: paths,
+      stroke: [{ mark_id: undefined, userId: userId ?? 0 }],
+      comments: [],
+      approx
+    }
+
+    this.markItemInfos.push(infoItem)
+    this.drawSingleMarkItem(infoItem)
+
+    return uuid
+  }
+
+  /**
+   * 通过 uuid 找到对应的 MarkItemInfo，并将其 stroke 中 mark_id 为空的项更新为指定 mark_id
+   *
+   * 用于在后端 API 返回 mark_id 后，将本地临时记录与后端数据关联
+   *
+   * @param uuid MarkItemInfo 的 uuid（由 strokeCurrentSelection 返回）
+   * @param markId 后端返回的 mark_id
+   * @param userId 用户ID（用于精确匹配对应 stroke 条目，可选）
+   */
+  updateMarkIdByUuid(uuid: string, markId: number, userId?: number): void {
+    const infoItem = this.markItemInfos.find((info) => info.id === uuid)
+    if (!infoItem) return
+
+    const stroke = infoItem.stroke.find((s) => !s.mark_id && (userId === undefined || s.userId === userId))
+    if (stroke) {
+      stroke.mark_id = markId
+    }
+  }
+
+  /**
+   * 将 Range 转换为 MarkPathItem 数组
+   */
+  private parseRangeToPaths(range: Range): MarkPathItem[] {
+    const paths: MarkPathItem[] = []
+    let currentPath: string | null = null
+    let currentStart = 0
+    let currentEnd = 0
+
+    const selectedInfo = this.getSelectionInfoFromRange(range)
+
+    for (const item of selectedInfo) {
+      if (item.type === 'text') {
+        let parent = (item.node as Node).parentElement
+        while (parent && parent.tagName === 'SLAX-MARK') {
+          parent = parent.parentElement
+        }
+        if (!parent) continue
+
+        const path = getElementPath(parent, this.container)
+        const allTextNodes = getAllTextNodes(parent)
+        let offset = 0
+        for (const textNode of allTextNodes) {
+          if (textNode === item.node) break
+          offset += (textNode.textContent || '').length
+        }
+
+        const start = offset + item.startOffset
+        const end = offset + item.endOffset
+
+        if (path === currentPath) {
+          currentEnd = end
+        } else {
+          if (currentPath !== null) {
+            paths.push({ type: 'text', path: currentPath, start: currentStart, end: currentEnd })
+          }
+          currentPath = path
+          currentStart = start
+          currentEnd = end
+        }
+      } else if (item.type === 'image') {
+        if (currentPath !== null) {
+          paths.push({ type: 'text', path: currentPath, start: currentStart, end: currentEnd })
+          currentPath = null
+        }
+        const path = getElementPath(item.element, this.container)
+        paths.push({ type: 'image', path })
+      }
+    }
+
+    if (currentPath !== null) {
+      paths.push({ type: 'text', path: currentPath, start: currentStart, end: currentEnd })
+    }
+
+    return paths
+  }
+
+  /**
+   * 从 Range 获取选区信息（文本节点 + 图片列表）
+   */
+  private getSelectionInfoFromRange(range: Range): Array<
+    | { type: 'text'; node: Node; startOffset: number; endOffset: number }
+    | { type: 'image'; element: HTMLImageElement }
+  > {
+    const result: Array<
+      | { type: 'text'; node: Node; startOffset: number; endOffset: number }
+      | { type: 'image'; element: HTMLImageElement }
+    > = []
+
+    const isFullyInRange = (node: Node) => {
+      const nr = document.createRange()
+      nr.selectNodeContents(node)
+      return (
+        range.compareBoundaryPoints(Range.START_TO_START, nr) <= 0 &&
+        range.compareBoundaryPoints(Range.END_TO_END, nr) >= 0
+      )
+    }
+
+    const partiallyInRange = (node: Node) => range.intersectsNode(node)
+
+    const processNode = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE && (node.textContent?.trim() || '').length > 0) {
+        if (!partiallyInRange(node)) return
+        let startOffset = node === range.startContainer ? range.startOffset : 0
+        let endOffset = node === range.endContainer ? range.endOffset : (node as Text).length
+        startOffset = Math.max(0, Math.min(startOffset, (node as Text).length))
+        endOffset = Math.max(startOffset, Math.min(endOffset, (node as Text).length))
+        if (endOffset > startOffset) {
+          result.push({ type: 'text', node, startOffset, endOffset })
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement
+        if (el.tagName === 'IMG' && isFullyInRange(el)) {
+          result.push({ type: 'image', element: el as HTMLImageElement })
+        }
+        if (partiallyInRange(el)) {
+          for (const child of Array.from(el.childNodes)) processNode(child)
+        }
+      }
+    }
+
+    processNode(range.commonAncestorContainer)
+    return result
+  }
+
+  /**
+   * 从 Range 中提取 approx 近似匹配信息
+   */
+  private parseApproxFromRange(range: Range): MarkPathApprox {
+    const exact = getRangeTextWithNewlines(range)
+
+    const prefixRange = document.createRange()
+    prefixRange.setStart(this.container, 0)
+    prefixRange.setEnd(range.startContainer, range.startOffset)
+    const fullPrefix = getRangeTextWithNewlines(prefixRange)
+    const prefix = fullPrefix.slice(-50)
+
+    const suffixRange = document.createRange()
+    suffixRange.setStart(range.endContainer, range.endOffset)
+    if (this.container.lastChild) {
+      suffixRange.setEndAfter(this.container.lastChild)
+    }
+    const fullSuffix = getRangeTextWithNewlines(suffixRange)
+    const suffix = fullSuffix.slice(0, 50)
+
+    return { exact, prefix, suffix, raw_text: exact }
   }
 
   /**

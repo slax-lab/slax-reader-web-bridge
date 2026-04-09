@@ -256,6 +256,48 @@ export class SlaxWebViewBridge {
     }
 
     /**
+     * 对当前选中区域执行划线处理（不调用后端 API，仅本地渲染）
+     *
+     * 读取 window.getSelection() → 解析路径和 approx → 构建 MarkItemInfo → 渲染划线标记
+     *
+     * 后续拿到后端 mark_id 后，可调用 updateMarkIdByUuid 将其与返回的 uuid 关联。
+     *
+     * @param userId 当前用户ID（可选，用于判断是否为自己的划线样式）
+     * @returns 新建标记的 uuid，若选区无效则返回 null
+     */
+    public strokeCurrentSelection(userId?: number): string | null {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] strokeCurrentSelection: selection monitoring not started');
+            return null;
+        }
+        try {
+            return this.markManager.strokeCurrentSelection(userId);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to stroke selection: ${error}` });
+            return null;
+        }
+    }
+
+    /**
+     * 通过 uuid 将后端返回的 mark_id 关联到本地 MarkItemInfo 的 stroke 记录
+     *
+     * 在调用 strokeCurrentSelection 拿到 uuid 后，等后端 API 返回 mark_id，
+     * 再调用此方法完成关联，以便后续删除/更新操作能找到正确的后端 ID。
+     *
+     * @param uuid strokeCurrentSelection 返回的 uuid
+     * @param markId 后端返回的 mark_id
+     * @param userId 用户ID（可选，用于精确匹配对应 stroke 条目）
+     */
+    public updateMarkIdByUuid(uuid: string, markId: number, userId?: number): void {
+        if (!this.markManager) return;
+        try {
+            this.markManager.updateMarkIdByUuid(uuid, markId, userId);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to update mark id by UUID: ${error}` });
+        }
+    }
+
+    /**
      * 设置当前用户ID（会重建内部 renderer/manager）
      */
     public setCurrentUserId(userId: number): void {
