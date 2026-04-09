@@ -7,7 +7,11 @@ import type {
   MarkPathItem,
   MarkPathApprox,
   DrawMarksResult,
-  UserList
+  UserList,
+  StrokeCreateData,
+  StrokeCreateSource,
+  StrokeCreateSelectContent,
+  StrokeCreateApproxSource
 } from '../types/selection'
 import { generateUUID, deepEqual, getRangeTextWithNewlines, getElementPath, getAllTextNodes } from '../utils/selection-utils'
 import { MarkRenderer } from './mark-renderer'
@@ -236,12 +240,13 @@ export class MarkManager {
    * 读取 window.getSelection() → 解析路径和 approx → 构建 MarkItemInfo → 渲染划线
    *
    * 注意：此方法不调用后端 API，只在本地渲染。
-   * 调用方在拿到后端 mark_id 后，可通过返回的 uuid 调用 updateMarkIdByUuid 更新关联信息。
+   * 返回值包含调用 /v1/mark/create 接口所需的全部字段，以及用于后续关联的 uuid。
+   * 拿到后端 mark_id 后，调用 updateMarkIdByUuid 完成关联。
    *
    * @param userId 当前用户ID（可选）
-   * @returns 新建 MarkItemInfo 的 uuid，若选区无效则返回 null
+   * @returns StrokeCreateData（含 uuid 及接口入参），若选区无效则返回 null
    */
-  strokeCurrentSelection(userId?: number): string | null {
+  strokeCurrentSelection(userId?: number): StrokeCreateData | null {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return null
 
@@ -250,26 +255,40 @@ export class MarkManager {
 
     if (!this.container.contains(range.commonAncestorContainer)) return null
 
-    // 解析路径
-    const paths = this.parseRangeToPaths(range)
+    // 一次性解析选区内的节点信息，后续各步骤共用
+    const selectionInfo = this.getSelectionInfoFromRange(range)
+    if (selectionInfo.length === 0) return null
+
+    // 解析渲染所需的路径（MarkPathItem[]）
+    const paths = this.buildPathsFromSelectionInfo(selectionInfo)
     if (paths.length === 0) return null
 
-    // 解析 approx
-    const approx = this.parseApproxFromRange(range)
+    // 解析 approx（同时得到接口格式的 approx_source，含 position_start/position_end）
+    const { approx, approxCreate } = this.parseApproxFromRange(range)
 
-    // 检查是否已存在相同 source 的 MarkItemInfo
+    // 构建接口所需的 select_content
+    const selectContent = this.buildSelectContent(selectionInfo)
+
+    // 接口所需的 source（xpath 格式）
+    const apiSource = this.convertToApiSource(paths)
+
+    // 检查是否已存在相同 source 的 MarkItemInfo（幂等处理）
     const existing = this.markItemInfos.find((info) => this.checkMarkSourceIsSame(info.source, paths))
     if (existing) {
-      // 已存在则直接在已有条目上追加 stroke（幂等处理）
       const alreadyStroked = existing.stroke.some((s) => s.userId === (userId ?? 0))
       if (!alreadyStroked) {
         existing.stroke.push({ mark_id: undefined, userId: userId ?? 0 })
         this.drawSingleMarkItem(existing)
       }
-      return existing.id
+      return {
+        uuid: existing.id,
+        source: apiSource,
+        select_content: selectContent,
+        approx_source: approxCreate
+      }
     }
 
-    // 构建新的 MarkItemInfo
+    // 构建新的 MarkItemInfo 并渲染
     const uuid = generateUUID()
     const infoItem: MarkItemInfo = {
       id: uuid,
@@ -282,7 +301,12 @@ export class MarkManager {
     this.markItemInfos.push(infoItem)
     this.drawSingleMarkItem(infoItem)
 
-    return uuid
+    return {
+      uuid,
+      source: apiSource,
+      select_content: selectContent,
+      approx_source: approxCreate
+    }
   }
 
   /**
@@ -306,16 +330,31 @@ export class MarkManager {
 
   /**
    * 将 Range 转换为 MarkPathItem 数组
+   *
+   * @deprecated 内部请改用 buildPathsFromSelectionInfo，避免重复解析 Range
    */
   private parseRangeToPaths(range: Range): MarkPathItem[] {
+    return this.buildPathsFromSelectionInfo(this.getSelectionInfoFromRange(range))
+  }
+
+  /**
+   * 从已解析的选区节点信息构建 MarkPathItem 数组（供渲染使用）
+   *
+   * 相邻同 path 的文本项合并为一个条目；SLAX-MARK 标签会被穿透，
+   * 使用其真实父元素的路径，与 SelectionMonitor.convertSelectionToPaths 逻辑一致
+   */
+  private buildPathsFromSelectionInfo(
+    selectionInfo: Array<
+      | { type: 'text'; node: Node; startOffset: number; endOffset: number }
+      | { type: 'image'; element: HTMLImageElement }
+    >
+  ): MarkPathItem[] {
     const paths: MarkPathItem[] = []
     let currentPath: string | null = null
     let currentStart = 0
     let currentEnd = 0
 
-    const selectedInfo = this.getSelectionInfoFromRange(range)
-
-    for (const item of selectedInfo) {
+    for (const item of selectionInfo) {
       if (item.type === 'text') {
         let parent = (item.node as Node).parentElement
         while (parent && parent.tagName === 'SLAX-MARK') {
@@ -359,6 +398,55 @@ export class MarkManager {
     }
 
     return paths
+  }
+
+  /**
+   * 将渲染用的 MarkPathItem[] 转换为接口入参格式 StrokeCreateSource[]
+   *
+   * 字段映射：path → xpath，start → start_offset，end → end_offset
+   * 图片类型的偏移量固定为 0
+   */
+  private convertToApiSource(paths: MarkPathItem[]): StrokeCreateSource[] {
+    return paths.map((p) => ({
+      type: p.type,
+      xpath: p.path,
+      start_offset: p.start ?? 0,
+      end_offset: p.end ?? 0
+    }))
+  }
+
+  /**
+   * 从已解析的选区节点信息构建 select_content
+   *
+   * 构建逻辑参考 DwebArticleSelection.handleMouseUp 对 list 的遍历：
+   * - 相邻文本项合并（去除换行）
+   * - 图片独立一项
+   */
+  private buildSelectContent(
+    selectionInfo: Array<
+      | { type: 'text'; node: Node; startOffset: number; endOffset: number }
+      | { type: 'image'; element: HTMLImageElement }
+    >
+  ): StrokeCreateSelectContent[] {
+    const result: StrokeCreateSelectContent[] = []
+
+    for (const item of selectionInfo) {
+      if (item.type === 'text') {
+        const rawText = (item.node.textContent || '').slice(item.startOffset, item.endOffset)
+        const text = rawText.replace(/\n/g, '')
+        const last = result[result.length - 1]
+        if (last?.type === 'text') {
+          // 与 DwebArticleSelection 一致：相邻文本合并
+          last.text += text
+        } else {
+          result.push({ type: 'text', text, src: '' })
+        }
+      } else if (item.type === 'image') {
+        result.push({ type: 'image', text: '', src: item.element.src })
+      }
+    }
+
+    return result
   }
 
   /**
@@ -410,9 +498,18 @@ export class MarkManager {
   }
 
   /**
-   * 从 Range 中提取 approx 近似匹配信息
+   * 从 Range 中提取 approx 信息，同时返回渲染格式和接口格式
+   *
+   * - approx：供 MarkItemInfo 内部使用（含 raw_text）
+   * - approxCreate：供 /v1/mark/create 接口使用（含 position_start / position_end）
+   *
+   * position_start = 容器起点到选区起点的完整文本长度
+   * position_end   = position_start + exact.length
    */
-  private parseApproxFromRange(range: Range): MarkPathApprox {
+  private parseApproxFromRange(range: Range): {
+    approx: MarkPathApprox
+    approxCreate: StrokeCreateApproxSource
+  } {
     const exact = getRangeTextWithNewlines(range)
 
     const prefixRange = document.createRange()
@@ -429,7 +526,13 @@ export class MarkManager {
     const fullSuffix = getRangeTextWithNewlines(suffixRange)
     const suffix = fullSuffix.slice(0, 50)
 
-    return { exact, prefix, suffix, raw_text: exact }
+    const position_start = fullPrefix.length
+    const position_end = position_start + exact.length
+
+    return {
+      approx: { exact, prefix, suffix, raw_text: exact },
+      approxCreate: { exact, prefix, suffix, position_start, position_end }
+    }
   }
 
   /**

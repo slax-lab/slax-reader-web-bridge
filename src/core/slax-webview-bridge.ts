@@ -260,10 +260,20 @@ export class SlaxWebViewBridge {
      *
      * 读取 window.getSelection() → 解析路径和 approx → 构建 MarkItemInfo → 渲染划线标记
      *
-     * 后续拿到后端 mark_id 后，可调用 updateMarkIdByUuid 将其与返回的 uuid 关联。
+     * 返回 JSON 字符串，结构如下（StrokeCreateData）：
+     * ```
+     * {
+     *   uuid: string              // 本地 UUID，用于 updateMarkIdByUuid 关联后端 mark_id
+     *   source: StrokeCreateSource[]        // /v1/mark/create 接口的 source 字段
+     *   select_content: StrokeCreateSelectContent[] // 接口的 select_content 字段
+     *   approx_source?: StrokeCreateApproxSource    // 接口的 approx_source 字段（含 position_start/position_end）
+     * }
+     * ```
+     *
+     * 选区无效时返回 null。
      *
      * @param userId 当前用户ID（可选，用于判断是否为自己的划线样式）
-     * @returns 新建标记的 uuid，若选区无效则返回 null
+     * @returns StrokeCreateData 的 JSON 字符串，或 null
      */
     public strokeCurrentSelection(userId?: number): string | null {
         if (!this.markManager) {
@@ -271,7 +281,8 @@ export class SlaxWebViewBridge {
             return null;
         }
         try {
-            return this.markManager.strokeCurrentSelection(userId);
+            const result = this.markManager.strokeCurrentSelection(userId);
+            return result ? JSON.stringify(result) : null;
         } catch (error) {
             postToNativeBridge({ type: 'selectionError', error: `Failed to stroke selection: ${error}` });
             return null;

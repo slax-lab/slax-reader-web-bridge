@@ -233,3 +233,64 @@ export interface MarkItemInfo {
 export type DrawMarksResult = {
   [uuid: string]: BackendMarkInfo[]
 }
+
+// ==================== strokeCurrentSelection 返回类型 ====================
+
+/**
+ * 划线接口（/v1/mark/create）的 source 字段格式
+ */
+export interface StrokeCreateSource {
+  type: 'text' | 'image'
+  /** CSS 选择器路径，对应接口字段 xpath */
+  xpath: string
+  /** 文本起始偏移（图片类型为 0） */
+  start_offset: number
+  /** 文本结束偏移（图片类型为 0） */
+  end_offset: number
+}
+
+/**
+ * 划线接口（/v1/mark/create）的 select_content 字段格式
+ *
+ * 构建逻辑参考 DwebArticleSelection.handleMouseUp 中对 list 的遍历：
+ * 相邻文本节点合并，图片独立一项
+ */
+export interface StrokeCreateSelectContent {
+  type: 'text' | 'image'
+  /** 文本内容（图片类型为空字符串） */
+  text: string
+  /** 图片 src（文本类型为空字符串） */
+  src: string
+}
+
+/**
+ * 划线接口（/v1/mark/create）的 approx_source 字段格式
+ */
+export interface StrokeCreateApproxSource {
+  /** 选中的精确文本 */
+  exact: string
+  /** 选区前最多 50 个字符 */
+  prefix: string
+  /** 选区后最多 50 个字符 */
+  suffix: string
+  /** 选区起始字符位置（从容器文本起点计算） */
+  position_start: number
+  /** 选区结束字符位置（= position_start + exact.length） */
+  position_end: number
+}
+
+/**
+ * strokeCurrentSelection 的完整返回值
+ *
+ * 包含本地渲染所需的 uuid 以及调用 /v1/mark/create 接口所需的全部字段
+ */
+export interface StrokeCreateData {
+  /** 本地生成的 UUID，用于后续通过 updateMarkIdByUuid 关联后端 mark_id */
+  uuid: string
+  /** 后端接口 source 字段 */
+  source: StrokeCreateSource[]
+  /** 后端接口 select_content 字段 */
+  select_content: StrokeCreateSelectContent[]
+  /** 后端接口 approx_source 字段（可选） */
+  approx_source?: StrokeCreateApproxSource
+}
