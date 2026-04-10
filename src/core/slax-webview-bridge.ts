@@ -10,7 +10,7 @@ import { SelectionMonitor } from '../features/selection-monitor';
 import { MarkRenderer } from '../features/mark-renderer';
 import { MarkManager } from '../features/mark-manager';
 import { generateUUID } from '../utils/selection-utils';
-import type { MarkPathItem, MarkDetail, PositionInfo } from '../types/selection';
+import type { MarkPathItem, MarkDetail } from '../types/selection';
 
 export class SlaxWebViewBridge {
     // selection 相关状态
@@ -75,11 +75,48 @@ export class SlaxWebViewBridge {
         this.stopSelectionMonitoring();
 
         this.selectionContainer = container;
-        this.markRenderer = new MarkRenderer(container, currentUserId);
-        this.markManager = new MarkManager(container, currentUserId);
-        this.selectionMonitor = new SelectionMonitor(container);
 
-        this.setupMarkClickListener(container);
+        // 追踪 touchstart 位置，供每个 slax-mark 的 touchend 回调做滚动判断
+        let touchStartX = 0;
+        let touchStartY = 0;
+        const trackTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 1) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }
+        };
+        document.addEventListener('touchstart', trackTouchStart, { passive: true });
+        this.markClickCleanup = () => document.removeEventListener('touchstart', trackTouchStart);
+
+        /**
+         * 每个 slax-mark 元素绑定此回调（在 MarkRenderer 内直接 addEventListener）。
+         * 在元素自身的 touchend 中判断：选区是否为空、手指是否移动过大，
+         * 再聚合同 UUID 所有 mark 的文本发送给 native。
+         */
+        const onMarkTap = (markId: string, event: TouchEvent) => {
+            if (event.changedTouches.length === 0) return;
+
+            // 有文本选中说明用户在选词，不触发划线点击
+            const selection = window.getSelection();
+            if (selection && !selection.isCollapsed) return;
+
+            const touch = event.changedTouches[0];
+            const dx = Math.abs(touch.clientX - touchStartX);
+            const dy = Math.abs(touch.clientY - touchStartY);
+            // 移动超过 10px 视为滚动
+            if (dx > 10 || dy > 10) return;
+
+            const allMarks = Array.from(
+                container.querySelectorAll(`slax-mark[data-uuid="${markId}"]`)
+            );
+            const fullText = allMarks.map((el) => el.textContent || '').join('');
+
+            postToNativeBridge({ type: 'markClicked', markId, text: fullText });
+        };
+
+        this.markRenderer = new MarkRenderer(container, currentUserId, onMarkTap);
+        this.markManager = new MarkManager(container, currentUserId, onMarkTap);
+        this.selectionMonitor = new SelectionMonitor(container);
 
         this.selectionMonitor.start((data) => {
             const jsonData = JSON.stringify({
@@ -318,52 +355,4 @@ export class SlaxWebViewBridge {
         }
     }
 
-    /**
-     * 设置 mark 点击事件监听
-     */
-    private setupMarkClickListener(container: HTMLElement): void {
-        const handler = (event: MouseEvent) => {
-            const target = event.target as HTMLElement;
-            let markElement: HTMLElement | null = target;
-
-            while (markElement && markElement !== container) {
-                if (markElement.tagName === 'SLAX-MARK' && markElement.dataset.uuid) {
-                    const markId = markElement.dataset.uuid;
-
-                    const markData = JSON.stringify({
-                        id: markId,
-                        text: markElement.textContent || '',
-                        classList: Array.from(markElement.classList)
-                    });
-
-                    const containerRect = container.getBoundingClientRect();
-                    const markRect = markElement.getBoundingClientRect();
-                    const position: PositionInfo = {
-                        x: event.clientX - containerRect.left,
-                        y: event.clientY - containerRect.top,
-                        width: markRect.width,
-                        height: markRect.height,
-                        top: markRect.top - containerRect.top,
-                        left: markRect.left - containerRect.left,
-                        right: markRect.right - containerRect.left,
-                        bottom: markRect.bottom - containerRect.top
-                    };
-
-                    postToNativeBridge({
-                        type: 'markClicked',
-                        markId,
-                        data: markData,
-                        position: JSON.stringify(position)
-                    });
-
-                    event.stopPropagation();
-                    break;
-                }
-                markElement = markElement.parentElement;
-            }
-        };
-
-        container.addEventListener('click', handler);
-        this.markClickCleanup = () => container.removeEventListener('click', handler);
-    }
 }

@@ -26,9 +26,13 @@ export class MarkManager {
   private renderer: MarkRenderer
   private markItemInfos: MarkItemInfo[] = []
 
-  constructor(container: HTMLElement, currentUserId?: number) {
+  constructor(
+    container: HTMLElement,
+    currentUserId?: number,
+    onMarkTap?: (markId: string, event: TouchEvent) => void
+  ) {
     this.container = container
-    this.renderer = new MarkRenderer(container, currentUserId)
+    this.renderer = new MarkRenderer(container, currentUserId, onMarkTap)
   }
 
   /**

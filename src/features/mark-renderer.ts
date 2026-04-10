@@ -9,10 +9,16 @@ import { removeOuterTag, getAllTextNodes } from '../utils/selection-utils'
 export class MarkRenderer {
   private container: HTMLElement
   private currentUserId?: number
+  private onMarkTap?: (markId: string, event: TouchEvent) => void
 
-  constructor(container: HTMLElement, currentUserId?: number) {
+  constructor(
+    container: HTMLElement,
+    currentUserId?: number,
+    onMarkTap?: (markId: string, event: TouchEvent) => void
+  ) {
     this.container = container
     this.currentUserId = currentUserId
+    this.onMarkTap = onMarkTap
   }
 
   /**
@@ -133,6 +139,12 @@ export class MarkRenderer {
     if (isSelfStroke) mark.classList.add('self-stroke')
     if (isHighlighted) mark.classList.add('highlighted')
 
+    // 直接在元素上绑定 touchend，避免容器级别委托时 event.target 不可靠的问题
+    if (this.onMarkTap) {
+      const tapCallback = this.onMarkTap
+      mark.addEventListener('touchend', (e: TouchEvent) => tapCallback(id, e))
+    }
+
     try {
       range.surroundContents(mark)
     } catch (error) {
@@ -152,6 +164,12 @@ export class MarkRenderer {
     if (hasComment) mark.classList.add('comment')
     if (isSelfStroke) mark.classList.add('self-stroke')
     if (isHighlighted) mark.classList.add('highlighted')
+
+    // 直接在元素上绑定 touchend
+    if (this.onMarkTap) {
+      const tapCallback = this.onMarkTap
+      mark.addEventListener('touchend', (e: TouchEvent) => tapCallback(id, e))
+    }
 
     ele.parentElement?.insertBefore(mark, ele)
     ele.remove()
