@@ -247,38 +247,64 @@ export class MarkManager {
    * @returns StrokeCreateData（含 uuid 及接口入参），若选区无效则返回 null
    */
   strokeCurrentSelection(userId?: number): StrokeCreateData | null {
+    console.log('[MarkManager] strokeCurrentSelection 开始，userId:', userId)
+
     const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return null
+    if (!selection || selection.rangeCount === 0) {
+      console.log('[MarkManager] strokeCurrentSelection 终止：无选区')
+      return null
+    }
 
     const range = selection.getRangeAt(0)
-    if (range.collapsed) return null
+    if (range.collapsed) {
+      console.log('[MarkManager] strokeCurrentSelection 终止：选区已折叠')
+      return null
+    }
 
-    if (!this.container.contains(range.commonAncestorContainer)) return null
+    if (!this.container.contains(range.commonAncestorContainer)) {
+      console.log('[MarkManager] strokeCurrentSelection 终止：选区不在容器内')
+      return null
+    }
 
     // 一次性解析选区内的节点信息，后续各步骤共用
     const selectionInfo = this.getSelectionInfoFromRange(range)
-    if (selectionInfo.length === 0) return null
+    console.log('[MarkManager] strokeCurrentSelection selectionInfo 解析结果，数量:', selectionInfo.length, selectionInfo)
+    if (selectionInfo.length === 0) {
+      console.log('[MarkManager] strokeCurrentSelection 终止：selectionInfo 为空')
+      return null
+    }
 
     // 解析渲染所需的路径（MarkPathItem[]）
     const paths = this.buildPathsFromSelectionInfo(selectionInfo)
-    if (paths.length === 0) return null
+    console.log('[MarkManager] strokeCurrentSelection paths 解析结果，数量:', paths.length, paths)
+    if (paths.length === 0) {
+      console.log('[MarkManager] strokeCurrentSelection 终止：paths 为空')
+      return null
+    }
 
     // 解析 approx（同时得到接口格式的 approx_source，含 position_start/position_end）
     const { approx, approxCreate } = this.parseApproxFromRange(range)
+    console.log('[MarkManager] strokeCurrentSelection approx:', approx, 'approxCreate:', approxCreate)
 
     // 构建接口所需的 select_content
     const selectContent = this.buildSelectContent(selectionInfo)
+    console.log('[MarkManager] strokeCurrentSelection selectContent:', selectContent)
 
     // 接口所需的 source（xpath 格式）
     const apiSource = this.convertToApiSource(paths)
+    console.log('[MarkManager] strokeCurrentSelection apiSource:', apiSource)
 
     // 检查是否已存在相同 source 的 MarkItemInfo（幂等处理）
     const existing = this.markItemInfos.find((info) => this.checkMarkSourceIsSame(info.source, paths))
     if (existing) {
+      console.log('[MarkManager] strokeCurrentSelection 命中已有 MarkItemInfo，uuid:', existing.id)
       const alreadyStroked = existing.stroke.some((s) => s.userId === (userId ?? 0))
       if (!alreadyStroked) {
+        console.log('[MarkManager] strokeCurrentSelection 当前用户尚未划线，追加 stroke')
         existing.stroke.push({ mark_id: undefined, userId: userId ?? 0 })
         this.drawSingleMarkItem(existing)
+      } else {
+        console.log('[MarkManager] strokeCurrentSelection 当前用户已有划线，跳过渲染')
       }
       return {
         uuid: existing.id,
@@ -290,6 +316,7 @@ export class MarkManager {
 
     // 构建新的 MarkItemInfo 并渲染
     const uuid = generateUUID()
+    console.log('[MarkManager] strokeCurrentSelection 创建新 MarkItemInfo，uuid:', uuid)
     const infoItem: MarkItemInfo = {
       id: uuid,
       source: paths,
@@ -301,12 +328,14 @@ export class MarkManager {
     this.markItemInfos.push(infoItem)
     this.drawSingleMarkItem(infoItem)
 
-    return {
+    const result: StrokeCreateData = {
       uuid,
       source: apiSource,
       select_content: selectContent,
       approx_source: approxCreate
     }
+    console.log('[MarkManager] strokeCurrentSelection 完成，返回:', result)
+    return result
   }
 
   /**
@@ -319,13 +348,28 @@ export class MarkManager {
    * @param userId 用户ID（用于精确匹配对应 stroke 条目，可选）
    */
   updateMarkIdByUuid(uuid: string, markId: number, userId?: number): void {
+    console.log('[MarkManager] updateMarkIdByUuid 开始，uuid:', uuid, 'markId:', markId, 'userId:', userId)
+    console.log('[MarkManager] updateMarkIdByUuid 当前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
-    if (!infoItem) return
+    if (!infoItem) {
+      console.warn('[MarkManager] updateMarkIdByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      return
+    }
+
+    console.log('[MarkManager] updateMarkIdByUuid 找到 MarkItemInfo:', JSON.parse(JSON.stringify(infoItem)))
+    console.log('[MarkManager] updateMarkIdByUuid 当前 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
 
     const stroke = infoItem.stroke.find((s) => !s.mark_id && (userId === undefined || s.userId === userId))
     if (stroke) {
+      console.log('[MarkManager] updateMarkIdByUuid 找到匹配 stroke，更新前:', JSON.parse(JSON.stringify(stroke)))
       stroke.mark_id = markId
+      console.log('[MarkManager] updateMarkIdByUuid 更新后 stroke:', JSON.parse(JSON.stringify(stroke)))
+    } else {
+      console.warn('[MarkManager] updateMarkIdByUuid 未找到可更新的 stroke（mark_id 为空且 userId 匹配）', 'userId 过滤条件:', userId)
     }
+
+    console.log('[MarkManager] updateMarkIdByUuid 完成，最新 markItemInfos:', JSON.parse(JSON.stringify(this.markItemInfos)))
   }
 
   /**
