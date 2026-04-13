@@ -19,6 +19,7 @@ export class SlaxWebViewBridge {
     private markManager: MarkManager | null = null;
     private selectionContainer: HTMLElement | null = null;
     private markClickCleanup: (() => void) | null = null;
+    private onMarkTap: ((markId: string, event: TouchEvent) => void) | null = null;
 
     constructor() {
         this.init();
@@ -110,9 +111,16 @@ export class SlaxWebViewBridge {
                 container.querySelectorAll(`slax-mark[data-uuid="${markId}"]`)
             );
             const fullText = allMarks.map((el) => el.textContent || '').join('');
+            const markItemInfo = this.markManager?.getMarkItemInfoByUuid(markId) ?? null;
 
-            postToNativeBridge({ type: 'markClicked', markId, text: fullText });
+            postToNativeBridge({
+                type: 'markClicked',
+                markId,
+                text: fullText,
+                markItemInfo: markItemInfo ? JSON.stringify(markItemInfo) : null
+            });
         };
+        this.onMarkTap = onMarkTap;
 
         this.markRenderer = new MarkRenderer(container, currentUserId, onMarkTap);
         this.markManager = new MarkManager(container, currentUserId, onMarkTap);
@@ -350,8 +358,8 @@ export class SlaxWebViewBridge {
      */
     public setCurrentUserId(userId: number): void {
         if (this.selectionContainer) {
-            this.markRenderer = new MarkRenderer(this.selectionContainer, userId);
-            this.markManager = new MarkManager(this.selectionContainer, userId);
+            this.markRenderer = new MarkRenderer(this.selectionContainer, userId, this.onMarkTap ?? undefined);
+            this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined);
         }
     }
 

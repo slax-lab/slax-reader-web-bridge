@@ -63,6 +63,13 @@ export class MarkManager {
   }
 
   /**
+   * 根据本地 UUID 获取 MarkItemInfo
+   */
+  getMarkItemInfoByUuid(uuid: string): MarkItemInfo | null {
+    return this.markItemInfos.find((info) => info.id === uuid) ?? null
+  }
+
+  /**
    * 清除所有标记
    */
   clearAllMarks(): void {
