@@ -354,6 +354,75 @@ export class SlaxWebViewBridge {
     }
 
     /**
+     * 根据 UUID 为指定用户添加划线
+     *
+     * 更新 MarkItemInfo 的 stroke 数组并刷新页面中对应 slax-mark 的样式。
+     * 已有该用户划线时幂等跳过。
+     *
+     * @param uuid MarkItemInfo 的本地 UUID
+     * @param userId 执行划线的用户ID
+     * @returns 是否成功添加
+     */
+    public addStrokeByUuid(uuid: string, userId: number): boolean {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] addStrokeByUuid: selection monitoring not started');
+            return false;
+        }
+        try {
+            return this.markManager.addStrokeByUuid(uuid, userId);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to add stroke by UUID: ${error}` });
+            return false;
+        }
+    }
+
+    /**
+     * 根据 UUID 删除指定用户的划线
+     *
+     * 从 MarkItemInfo 的 stroke 数组中移除该用户的记录并刷新 slax-mark 样式。
+     * 若 stroke 和 comments 均为空，则整体删除该标记。
+     *
+     * @param uuid MarkItemInfo 的本地 UUID
+     * @param userId 要删除划线的用户ID
+     * @returns 是否成功删除
+     */
+    public removeStrokeByUuid(uuid: string, userId: number): boolean {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] removeStrokeByUuid: selection monitoring not started');
+            return false;
+        }
+        try {
+            return this.markManager.removeStrokeByUuid(uuid, userId);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to remove stroke by UUID: ${error}` });
+            return false;
+        }
+    }
+
+    /**
+     * 根据 UUID 添加评论
+     *
+     * 在 MarkItemInfo 的 comments 数组中追加一条评论并刷新 slax-mark 样式（添加 .comment class）。
+     *
+     * @param uuid MarkItemInfo 的本地 UUID
+     * @param userId 发表评论的用户ID
+     * @param comment 评论内容
+     * @returns 是否成功添加
+     */
+    public addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] addCommentByUuid: selection monitoring not started');
+            return false;
+        }
+        try {
+            return this.markManager.addCommentByUuid(uuid, userId, comment);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to add comment by UUID: ${error}` });
+            return false;
+        }
+    }
+
+    /**
      * 设置当前用户ID（会重建内部 renderer/manager）
      */
     public setCurrentUserId(userId: number): void {

@@ -78,6 +78,123 @@ export class MarkManager {
   }
 
   /**
+   * 根据 UUID 为指定用户添加划线
+   *
+   * 在对应 MarkItemInfo 的 stroke 数组中追加一条记录，并重新渲染该标记的 DOM 样式。
+   * 如果该用户已有划线，则跳过（幂等）。
+   *
+   * @param uuid MarkItemInfo 的本地 UUID
+   * @param userId 执行划线的用户ID
+   * @returns 是否成功添加（false 表示 uuid 不存在或用户已有划线）
+   */
+  addStrokeByUuid(uuid: string, userId: number): boolean {
+    const infoItem = this.markItemInfos.find((info) => info.id === uuid)
+    if (!infoItem) {
+      console.warn('[MarkManager] addStrokeByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      return false
+    }
+
+    const alreadyStroked = infoItem.stroke.some((s) => s.userId === userId)
+    if (alreadyStroked) {
+      console.log('[MarkManager] addStrokeByUuid 用户已有划线，跳过，uuid:', uuid, 'userId:', userId)
+      return false
+    }
+
+    infoItem.stroke.push({ mark_id: undefined, userId })
+    this.updateMarkItemUI(infoItem)
+    console.log('[MarkManager] addStrokeByUuid 成功，uuid:', uuid, 'userId:', userId)
+    return true
+  }
+
+  /**
+   * 根据 UUID 删除指定用户的划线
+   *
+   * 从对应 MarkItemInfo 的 stroke 数组中移除该用户的记录，并重新渲染 DOM 样式。
+   * 如果移除后 stroke 和 comments 均为空，则整体删除该标记。
+   *
+   * @param uuid MarkItemInfo 的本地 UUID
+   * @param userId 要删除划线的用户ID
+   * @returns 是否成功删除（false 表示 uuid 不存在或该用户无划线）
+   */
+  removeStrokeByUuid(uuid: string, userId: number): boolean {
+    const infoItem = this.markItemInfos.find((info) => info.id === uuid)
+    if (!infoItem) {
+      console.warn('[MarkManager] removeStrokeByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      return false
+    }
+
+    const strokeIndex = infoItem.stroke.findIndex((s) => s.userId === userId)
+    if (strokeIndex === -1) {
+      console.log('[MarkManager] removeStrokeByUuid 该用户无划线，跳过，uuid:', uuid, 'userId:', userId)
+      return false
+    }
+
+    infoItem.stroke.splice(strokeIndex, 1)
+
+    // 划线和评论都为空时，整体删除该标记
+    if (infoItem.stroke.length === 0 && infoItem.comments.length === 0) {
+      this.removeMarkByUuid(uuid)
+      console.log('[MarkManager] removeStrokeByUuid 标记已无划线和评论，整体删除，uuid:', uuid)
+    } else {
+      this.updateMarkItemUI(infoItem)
+      console.log('[MarkManager] removeStrokeByUuid 成功，uuid:', uuid, 'userId:', userId)
+    }
+
+    return true
+  }
+
+  /**
+   * 根据 UUID 添加评论
+   *
+   * 在对应 MarkItemInfo 的 comments 数组中追加一条评论记录，并重新渲染 DOM 样式。
+   *
+   * @param uuid MarkItemInfo 的本地 UUID
+   * @param userId 发表评论的用户ID
+   * @param comment 评论内容
+   * @returns 是否成功添加（false 表示 uuid 不存在）
+   */
+  addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
+    const infoItem = this.markItemInfos.find((info) => info.id === uuid)
+    if (!infoItem) {
+      console.warn('[MarkManager] addCommentByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      return false
+    }
+
+    const commentInfo: MarkCommentInfo = {
+      markId: 0,
+      comment,
+      userId,
+      username: '',
+      avatar: '',
+      isDeleted: false,
+      children: [],
+      createdAt: new Date(),
+      showInput: false,
+      loading: false,
+      operateLoading: false
+    }
+
+    infoItem.comments.push(commentInfo)
+    this.updateMarkItemUI(infoItem)
+    console.log('[MarkManager] addCommentByUuid 成功，uuid:', uuid, 'userId:', userId)
+    return true
+  }
+
+  /**
+   * 更新单个 MarkItemInfo 对应的 DOM 样式
+   *
+   * 根据当前 stroke 和 comments 的状态，通过 renderer.updateMark 刷新 slax-mark 的 CSS class。
+   */
+  private updateMarkItemUI(info: MarkItemInfo): void {
+    const hasStroke = info.stroke.length > 0
+    const hasComment = info.comments.length > 0
+    const userId =
+      info.stroke.length > 0 ? info.stroke[0].userId : info.comments[0]?.userId
+
+    this.renderer.updateMark(info.id, hasStroke, hasComment, userId)
+  }
+
+  /**
    * 高亮指定UUID的标记
    */
   highlightMark(uuid: string): void {
