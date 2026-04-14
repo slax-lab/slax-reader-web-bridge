@@ -161,6 +161,94 @@ export class MarkManager {
   }
 
   /**
+   * 通过 source 添加划线（用于临时选区场景）
+   *
+   * 当 markItemInfo 是临时的（id 为空、未被 markItemInfos 持有）时使用此方法。
+   * 流程为：
+   * 1. 根据 source 检查 markItemInfos 中是否已有匹配项
+   * 2. 若没有则创建新的 MarkItemInfo 并 push 到 markItemInfos
+   * 3. 在对应 MarkItemInfo 中插入划线记录
+   * 4. 渲染 DOM 样式
+   * 5. 返回 uuid 和接口所需的 source/select_content/approx_source 数据
+   *
+   * @param source MarkPathItem 数组（从临时 markItemInfo 中获取）
+   * @param userId 执行划线的用户ID
+   * @param approx 近似位置信息（可选，为空时自动从 source 生成）
+   * @returns 包含 uuid 及接口入参的数据，失败返回 null
+   */
+  addStrokeBySource(
+    source: MarkPathItem[],
+    userId: number,
+    approx?: MarkPathApprox
+  ): StrokeCreateData | null {
+    if (!source || source.length === 0) {
+      console.warn('[MarkManager] addStrokeBySource 终止：source 为空')
+      return null
+    }
+
+    // 若 approx 为空，根据 source 定位 DOM 元素重新生成
+    let resolvedApprox = approx
+    if (!resolvedApprox) {
+      resolvedApprox = this.buildApproxFromSource(source)
+      if (resolvedApprox) {
+        console.log('[MarkManager] addStrokeBySource 根据 source 生成了 approx:', resolvedApprox)
+      }
+    }
+
+    // 1. 检查是否已有匹配的 MarkItemInfo
+    let infoItem = this.markItemInfos.find((info) =>
+      this.checkMarkSourceIsSame(info.source, source)
+    )
+
+    // 2. 没有则创建新的
+    if (!infoItem) {
+      const uuid = generateUUID()
+      infoItem = {
+        id: uuid,
+        source,
+        stroke: [],
+        comments: [],
+        approx: resolvedApprox
+      }
+      this.markItemInfos.push(infoItem)
+      console.log('[MarkManager] addStrokeBySource 创建新 MarkItemInfo，uuid:', uuid)
+    } else {
+      console.log('[MarkManager] addStrokeBySource 命中已有 MarkItemInfo，uuid:', infoItem.id)
+    }
+
+    // 3. 幂等检查后插入划线记录
+    const alreadyStroked = infoItem.stroke.some((s) => s.userId === userId)
+    if (!alreadyStroked) {
+      infoItem.stroke.push({ mark_id: undefined, userId })
+    }
+
+    // 4. 渲染 DOM
+    this.drawSingleMarkItem(infoItem)
+
+    // 5. 构造返回数据
+    const apiSource = this.convertToApiSource(source)
+    const selectContent: StrokeCreateSelectContent[] = resolvedApprox?.raw_text
+      ? [{ type: 'text' as const, text: resolvedApprox.raw_text, src: '' }]
+      : [{ type: 'text' as const, text: resolvedApprox?.exact ?? '', src: '' }]
+
+    const result: StrokeCreateData = {
+      uuid: infoItem.id,
+      source: apiSource,
+      select_content: selectContent,
+      approx_source: resolvedApprox ? {
+        exact: resolvedApprox.exact,
+        prefix: resolvedApprox.prefix,
+        suffix: resolvedApprox.suffix,
+        position_start: 0,
+        position_end: resolvedApprox.exact.length
+      } : undefined
+    }
+
+    console.log('[MarkManager] addStrokeBySource 完成，返回:', result)
+    return result
+  }
+
+  /**
    * 根据 UUID 删除指定用户的划线
    *
    * 从对应 MarkItemInfo 的 stroke 数组中移除该用户的记录，并重新渲染 DOM 样式。
@@ -203,11 +291,14 @@ export class MarkManager {
    * 在对应 MarkItemInfo 的 comments 数组中追加一条评论记录，并重新渲染 DOM 样式。
    *
    * @param uuid MarkItemInfo 的本地 UUID
-   * @param userId 发表评论的用户ID
-   * @param comment 评论内容
+   * @param params 评论参数对象
+   * @param params.userId 发表评论的用户ID
+   * @param params.comment 评论内容
+   * @param params.username 用户名（用于即时展示）
+   * @param params.avatar 用户头像URL（用于即时展示）
    * @returns 是否成功添加（false 表示 uuid 不存在）
    */
-  addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
+  addCommentByUuid(uuid: string, params: { userId: number; comment: string; username?: string; avatar?: string }): boolean {
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
     if (!infoItem) {
       console.warn('[MarkManager] addCommentByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
@@ -216,10 +307,10 @@ export class MarkManager {
 
     const commentInfo: MarkCommentInfo = {
       markId: 0,
-      comment,
-      userId,
-      username: '',
-      avatar: '',
+      comment: params.comment,
+      userId: params.userId,
+      username: params.username ?? '',
+      avatar: params.avatar ?? '',
       isDeleted: false,
       children: [],
       createdAt: new Date(),
@@ -230,8 +321,106 @@ export class MarkManager {
 
     infoItem.comments.push(commentInfo)
     this.updateMarkItemUI(infoItem)
-    console.log('[MarkManager] addCommentByUuid 成功，uuid:', uuid, 'userId:', userId)
+    console.log('[MarkManager] addCommentByUuid 成功，uuid:', uuid, 'userId:', params.userId)
     return true
+  }
+
+  /**
+   * 通过 source 添加评论（用于临时选区场景）
+   *
+   * 当 markItemInfo 是临时的（id 为空、未被 markItemInfos 持有）时使用此方法。
+   * 流程为：
+   * 1. 根据 source 检查 markItemInfos 中是否已有匹配项
+   * 2. 若没有则创建新的 MarkItemInfo 并 push 到 markItemInfos
+   * 3. 在对应 MarkItemInfo 中插入评论记录
+   * 4. 渲染 DOM 样式
+   * 5. 返回 uuid 和接口所需的 source/select_content/approx_source 数据
+   *
+   * @param source MarkPathItem 数组（从临时 markItemInfo 中获取）
+   * @param commentParams 评论参数
+   * @param approx 近似位置信息（可选，从临时 markItemInfo 中获取）
+   * @returns 包含 uuid 及接口入参的数据，失败返回 null
+   */
+  addCommentBySource(
+    source: MarkPathItem[],
+    commentParams: { userId: number; comment: string; username?: string; avatar?: string },
+    approx?: MarkPathApprox
+  ): StrokeCreateData | null {
+    if (!source || source.length === 0) {
+      console.warn('[MarkManager] addCommentBySource 终止：source 为空')
+      return null
+    }
+
+    // 若 approx 为空，根据 source 定位 DOM 元素重新生成
+    let resolvedApprox = approx
+    if (!resolvedApprox) {
+      resolvedApprox = this.buildApproxFromSource(source)
+      if (resolvedApprox) {
+        console.log('[MarkManager] addCommentBySource 根据 source 生成了 approx:', resolvedApprox)
+      }
+    }
+
+    // 1. 检查是否已有匹配的 MarkItemInfo
+    let infoItem = this.markItemInfos.find((info) =>
+      this.checkMarkSourceIsSame(info.source, source)
+    )
+
+    // 2. 没有则创建新的
+    if (!infoItem) {
+      const uuid = generateUUID()
+      infoItem = {
+        id: uuid,
+        source,
+        stroke: [],
+        comments: [],
+        approx: resolvedApprox
+      }
+      this.markItemInfos.push(infoItem)
+      console.log('[MarkManager] addCommentBySource 创建新 MarkItemInfo，uuid:', uuid)
+    } else {
+      console.log('[MarkManager] addCommentBySource 命中已有 MarkItemInfo，uuid:', infoItem.id)
+    }
+
+    // 3. 插入评论记录
+    const commentInfo: MarkCommentInfo = {
+      markId: 0,
+      comment: commentParams.comment,
+      userId: commentParams.userId,
+      username: commentParams.username ?? '',
+      avatar: commentParams.avatar ?? '',
+      isDeleted: false,
+      children: [],
+      createdAt: new Date(),
+      showInput: false,
+      loading: false,
+      operateLoading: false
+    }
+    infoItem.comments.push(commentInfo)
+
+    // 4. 渲染 DOM
+    this.drawSingleMarkItem(infoItem)
+
+    // 5. 构造返回数据
+    const apiSource = this.convertToApiSource(source)
+    const selectContent: StrokeCreateSelectContent[] = resolvedApprox?.raw_text
+      ? [{ type: 'text' as const, text: resolvedApprox.raw_text, src: '' }]
+      : [{ type: 'text' as const, text: resolvedApprox?.exact ?? '', src: '' }]
+
+    const result: StrokeCreateData = {
+      uuid: infoItem.id,
+      source: apiSource,
+      select_content: selectContent,
+      approx_source: resolvedApprox ? {
+        exact: resolvedApprox.exact,
+        prefix: resolvedApprox.prefix,
+        suffix: resolvedApprox.suffix,
+        position_start: 0,
+        position_end: resolvedApprox.exact.length
+      } : undefined
+    }
+
+    console.log('[MarkManager] addCommentBySource 完成，返回:', result)
+    return result
   }
 
   /**
@@ -555,6 +744,36 @@ export class MarkManager {
   }
 
   /**
+   * 通过 uuid 将后端返回的 mark_id 回补到评论记录
+   *
+   * 找到指定 uuid 的 MarkItemInfo，将 comments 中最后一条 markId === 0 的临时评论
+   * 更新为后端返回的真实 markId，确保后续删除/更新操作能正确关联后端数据。
+   *
+   * @param uuid MarkItemInfo 的本地 UUID
+   * @param markId 后端返回的 mark_id
+   * @returns 是否成功更新
+   */
+  updateCommentMarkIdByUuid(uuid: string, markId: number): boolean {
+    const infoItem = this.markItemInfos.find((info) => info.id === uuid)
+    if (!infoItem) {
+      console.warn('[MarkManager] updateCommentMarkIdByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      return false
+    }
+
+    // 从后往前找第一条 markId 为 0 的临时评论（即最近一次 addCommentByUuid 添加的）
+    for (let i = infoItem.comments.length - 1; i >= 0; i--) {
+      if (infoItem.comments[i].markId === 0) {
+        infoItem.comments[i].markId = markId
+        console.log('[MarkManager] updateCommentMarkIdByUuid 成功，uuid:', uuid, 'markId:', markId)
+        return true
+      }
+    }
+
+    console.warn('[MarkManager] updateCommentMarkIdByUuid 未找到 markId 为 0 的临时评论，uuid:', uuid)
+    return false
+  }
+
+  /**
    * 将 Range 转换为 MarkPathItem 数组
    *
    * @deprecated 内部请改用 buildPathsFromSelectionInfo，避免重复解析 Range
@@ -759,6 +978,84 @@ export class MarkManager {
       approx: { exact, prefix, suffix, raw_text: exact },
       approxCreate: { exact, prefix, suffix, position_start, position_end }
     }
+  }
+
+  /**
+   * 根据 source（MarkPathItem[]）构建 Range 并复用 parseApproxFromRange 生成 MarkPathApprox
+   *
+   * @param source MarkPathItem 数组
+   * @returns 生成的 MarkPathApprox，若 DOM 元素不存在则返回 undefined
+   */
+  private buildApproxFromSource(source: MarkPathItem[]): MarkPathApprox | undefined {
+    const range = this.buildRangeFromSource(source)
+    if (!range) return undefined
+
+    try {
+      const { approx } = this.parseApproxFromRange(range)
+      return approx
+    } catch (error) {
+      console.warn('[MarkManager] buildApproxFromSource parseApproxFromRange 失败:', error)
+      return undefined
+    }
+  }
+
+  /**
+   * 根据 source（MarkPathItem[]）定位 DOM 元素，构建一个覆盖整个选区的 Range
+   *
+   * @param source MarkPathItem 数组
+   * @returns 构建的 Range，若 DOM 元素不存在则返回 null
+   */
+  private buildRangeFromSource(source: MarkPathItem[]): Range | null {
+    // 只处理文本类型的 source
+    const textSources = source.filter((s) => s.type === 'text')
+    if (textSources.length === 0) return null
+
+    const first = textSources[0]
+    const last = textSources[textSources.length - 1]
+
+    const firstElement = this.container.querySelector(first.path) as HTMLElement
+    const lastElement = this.container.querySelector(last.path) as HTMLElement
+    if (!firstElement || !lastElement) return null
+
+    // 在第一个元素中定位起始文本节点和偏移
+    const startResult = this.findTextNodeAtOffset(firstElement, first.start ?? 0)
+    // 在最后一个元素中定位结束文本节点和偏移
+    const endResult = this.findTextNodeAtOffset(lastElement, last.end ?? 0)
+    if (!startResult || !endResult) return null
+
+    try {
+      const range = document.createRange()
+      range.setStart(startResult.node, startResult.offset)
+      range.setEnd(endResult.node, endResult.offset)
+      return range
+    } catch (error) {
+      console.warn('[MarkManager] buildRangeFromSource Range 构建失败:', error)
+      return null
+    }
+  }
+
+  /**
+   * 在元素的文本节点中定位指定字符偏移所对应的 { node, offset }
+   */
+  private findTextNodeAtOffset(element: HTMLElement, targetOffset: number): { node: Node; offset: number } | null {
+    const textNodes = getAllTextNodes(element)
+    let accumulated = 0
+
+    for (const node of textNodes) {
+      const nodeLen = (node.textContent || '').length
+      if (accumulated + nodeLen >= targetOffset) {
+        return { node, offset: targetOffset - accumulated }
+      }
+      accumulated += nodeLen
+    }
+
+    // 偏移超出范围，定位到最后一个文本节点末尾
+    if (textNodes.length > 0) {
+      const lastNode = textNodes[textNodes.length - 1]
+      return { node: lastNode, offset: (lastNode.textContent || '').length }
+    }
+
+    return null
   }
 
   /**

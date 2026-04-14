@@ -350,6 +350,33 @@ export class SlaxWebViewBridge {
     }
 
     /**
+     * 通过 source 添加划线（用于临时选区场景）
+     *
+     * 当 markItemInfo 是临时的（id 为空、未被 markItemInfos 持有）时使用此方法。
+     * 会自动创建或复用已有的 MarkItemInfo，插入划线并渲染 DOM。
+     *
+     * @param sourceJson MarkPathItem[] 的 JSON 字符串
+     * @param userId 执行划线的用户ID
+     * @param approxJson MarkPathApprox 的 JSON 字符串（可选）
+     * @returns StrokeCreateData 的 JSON 字符串（含 uuid 及接口入参），失败返回 null
+     */
+    public addStrokeBySource(sourceJson: string, userId: number, approxJson?: string): string | null {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] addStrokeBySource: selection monitoring not started');
+            return null;
+        }
+        try {
+            const source = JSON.parse(sourceJson);
+            const approx = approxJson ? JSON.parse(approxJson) : undefined;
+            const result = this.markManager.addStrokeBySource(source, userId, approx);
+            return result ? JSON.stringify(result) : null;
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to add stroke by source: ${error}` });
+            return null;
+        }
+    }
+
+    /**
      * 根据 UUID 删除指定用户的划线
      *
      * 从 MarkItemInfo 的 stroke 数组中移除该用户的记录并刷新 slax-mark 样式。
@@ -378,20 +405,73 @@ export class SlaxWebViewBridge {
      * 在 MarkItemInfo 的 comments 数组中追加一条评论并刷新 slax-mark 样式（添加 .comment class）。
      *
      * @param uuid MarkItemInfo 的本地 UUID
-     * @param userId 发表评论的用户ID
-     * @param comment 评论内容
+     * @param params 评论参数对象，包含 userId、comment、username、avatar
      * @returns 是否成功添加
      */
-    public addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
+    public addCommentByUuid(uuid: string, params: { userId: number; comment: string; username?: string; avatar?: string }): boolean {
         if (!this.markManager) {
             console.warn('[WebView Bridge] addCommentByUuid: selection monitoring not started');
             return false;
         }
         try {
-            return this.markManager.addCommentByUuid(uuid, userId, comment);
+            return this.markManager.addCommentByUuid(uuid, params);
         } catch (error) {
             postToNativeBridge({ type: 'selectionError', error: `Failed to add comment by UUID: ${error}` });
             return false;
+        }
+    }
+
+    /**
+     * 通过 UUID 将后端返回的 mark_id 回补到评论记录
+     *
+     * 在调用 addCommentByUuid 添加本地临时评论后，等后端 API 返回 mark_id，
+     * 再调用此方法将临时评论（markId=0）的 markId 更新为真实值。
+     *
+     * @param uuid MarkItemInfo 的本地 UUID
+     * @param markId 后端返回的 mark_id
+     * @returns 是否成功更新
+     */
+    public updateCommentMarkIdByUuid(uuid: string, markId: number): boolean {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] updateCommentMarkIdByUuid: selection monitoring not started');
+            return false;
+        }
+        try {
+            return this.markManager.updateCommentMarkIdByUuid(uuid, markId);
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to update comment mark id by UUID: ${error}` });
+            return false;
+        }
+    }
+
+    /**
+     * 通过 source 添加评论（用于临时选区场景）
+     *
+     * 当 markItemInfo 是临时的（id 为空、未被 markItemInfos 持有）时使用此方法。
+     * 会自动创建或复用已有的 MarkItemInfo，插入评论并渲染 DOM。
+     *
+     * @param sourceJson MarkPathItem[] 的 JSON 字符串
+     * @param commentParams 评论参数对象
+     * @param approxJson MarkPathApprox 的 JSON 字符串（可选）
+     * @returns StrokeCreateData 的 JSON 字符串（含 uuid 及接口入参），失败返回 null
+     */
+    public addCommentBySource(
+        sourceJson: string,
+        commentParams: { userId: number; comment: string; username?: string; avatar?: string },
+        approxJson?: string
+    ): string | null {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] addCommentBySource: selection monitoring not started');
+            return null;
+        }
+        try {
+            const source = JSON.parse(sourceJson);
+            const approx = approxJson ? JSON.parse(approxJson) : undefined;
+            const result = this.markManager.addCommentBySource(source, commentParams, approx);
+            return result ? JSON.stringify(result) : null;
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to add comment by source: ${error}` });
+            return null;
         }
     }
 
