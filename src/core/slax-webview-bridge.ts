@@ -9,8 +9,7 @@ import { applyPolyfills } from '../utils/polyfill';
 import { SelectionMonitor } from '../features/selection-monitor';
 import { MarkRenderer } from '../features/mark-renderer';
 import { MarkManager } from '../features/mark-manager';
-import { generateUUID } from '../utils/selection-utils';
-import type { MarkPathItem, MarkDetail } from '../types/selection';
+import type { MarkDetail, MarkItemInfo } from '../types/selection';
 
 export class SlaxWebViewBridge {
     // selection 相关状态
@@ -20,6 +19,7 @@ export class SlaxWebViewBridge {
     private selectionContainer: HTMLElement | null = null;
     private markClickCleanup: (() => void) | null = null;
     private onMarkTap: ((markId: string, event: TouchEvent) => void) | null = null;
+    private onSelectionMarkInfoChange: ((markItemInfo: MarkItemInfo) => void) | null = null;
 
     constructor() {
         this.init();
@@ -122,11 +122,26 @@ export class SlaxWebViewBridge {
         };
         this.onMarkTap = onMarkTap;
 
+        /**
+         * 选区对应的 MarkItemInfo 变化时，通过 native bridge 通知原生端
+         */
+        const onSelectionMarkInfoChange = (markItemInfo: MarkItemInfo) => {
+            console.log('[WebView Bridge] Selection MarkItemInfo changed:', markItemInfo);
+            postToNativeBridge({
+                type: 'selectionMarkItemInfo',
+                markItemInfo: JSON.stringify(markItemInfo)
+            });
+        };
+        this.onSelectionMarkInfoChange = onSelectionMarkInfoChange;
+
         this.markRenderer = new MarkRenderer(container, currentUserId, onMarkTap);
-        this.markManager = new MarkManager(container, currentUserId, onMarkTap);
+        this.markManager = new MarkManager(container, currentUserId, onMarkTap, onSelectionMarkInfoChange);
         this.selectionMonitor = new SelectionMonitor(container);
 
         this.selectionMonitor.start((data) => {
+            // 选区变化时，检测当前选区是否匹配已有的 MarkItemInfo
+            this.markManager?.detectSelectionMarkItemInfo(data.paths, data.approx);
+
             const jsonData = JSON.stringify({
                 paths: data.paths,
                 approx: data.approx,
@@ -149,6 +164,9 @@ export class SlaxWebViewBridge {
                 data: jsonData,
                 position: JSON.stringify(data.position)
             });
+        }, () => {
+            // 选区取消时，清除当前选区对应的 MarkItemInfo（不触发回调）
+            this.markManager?.clearCurrentMarkItemInfo();
         });
 
         console.log(`[WebView Bridge] Selection monitoring started on: ${containerSelector}`);
@@ -169,6 +187,7 @@ export class SlaxWebViewBridge {
         this.selectionContainer = null;
         this.markRenderer = null;
         this.markManager = null;
+        this.onSelectionMarkInfoChange = null;
     }
 
     /**
@@ -176,38 +195,6 @@ export class SlaxWebViewBridge {
      */
     public clearSelection(): void {
         this.selectionMonitor?.clearSelection();
-    }
-
-    /**
-     * 绘制标记
-     * @param id 标记ID（传 null 则自动生成）
-     * @param pathsJson MarkPathItem[] 的 JSON 字符串
-     * @param isStroke 是否为划线
-     * @param hasComment 是否有评论
-     * @param userId 用户ID（可选）
-     * @returns 标记ID
-     */
-    public drawMark(
-        id: string | null,
-        pathsJson: string,
-        isStroke: boolean,
-        hasComment: boolean,
-        userId?: number
-    ): string {
-        const markId = id || generateUUID();
-        if (!this.markRenderer) {
-            console.warn('[WebView Bridge] drawMark: selection monitoring not started');
-            return markId;
-        }
-        try {
-            const paths: MarkPathItem[] = JSON.parse(pathsJson);
-            const success = this.markRenderer.drawMark(markId, paths, isStroke, hasComment, userId);
-            postToNativeBridge({ type: 'markRendered', markId, success });
-            return markId;
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to draw mark: ${error}` });
-            return markId;
-        }
     }
 
     /**
@@ -246,20 +233,6 @@ export class SlaxWebViewBridge {
         }
     }
 
-    /**
-     * 清除所有高亮
-     */
-    public clearHighlights(): void {
-        this.markRenderer?.clearAllHighlights();
-    }
-
-    /**
-     * 清除所有标记
-     */
-    public clearAllMarks(): void {
-        this.markRenderer?.clearAllMarks();
-        this.markManager?.clearAllMarks();
-    }
 
     /**
      * 获取所有标记ID
@@ -428,7 +401,7 @@ export class SlaxWebViewBridge {
     public setCurrentUserId(userId: number): void {
         if (this.selectionContainer) {
             this.markRenderer = new MarkRenderer(this.selectionContainer, userId, this.onMarkTap ?? undefined);
-            this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined);
+            this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined, this.onSelectionMarkInfoChange ?? undefined);
         }
     }
 

@@ -10,6 +10,7 @@ export class SelectionMonitor {
   private container: HTMLElement
   private isMonitoring: boolean = false
   private onSelectionCallback?: (data: SelectionEventData) => void
+  private onSelectionClearedCallback?: () => void
   private selectionChangeTimeout?: ReturnType<typeof setTimeout>
 
   constructor(container: HTMLElement) {
@@ -18,13 +19,16 @@ export class SelectionMonitor {
 
   /**
    * 开始监听选择
+   * @param callback 选区变化时的回调
+   * @param onSelectionCleared 选区取消（collapsed 或清空）时的回调
    */
-  start(callback: (data: SelectionEventData) => void): void {
+  start(callback: (data: SelectionEventData) => void, onSelectionCleared?: () => void): void {
     if (this.isMonitoring) {
       return
     }
 
     this.onSelectionCallback = callback
+    this.onSelectionClearedCallback = onSelectionCleared
 
     // 使用 selectionchange 事件（更适合 Android WebView）
     document.addEventListener('selectionchange', this.handleSelectionChange)
@@ -55,6 +59,7 @@ export class SelectionMonitor {
 
     this.isMonitoring = false
     this.onSelectionCallback = undefined
+    this.onSelectionClearedCallback = undefined
   }
 
   /**
@@ -68,12 +73,14 @@ export class SelectionMonitor {
     this.selectionChangeTimeout = setTimeout(() => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) {
+        this.onSelectionClearedCallback?.()
         return
       }
 
       const range = selection.getRangeAt(0)
 
       if (range.collapsed) {
+        this.onSelectionClearedCallback?.()
         return
       }
 
