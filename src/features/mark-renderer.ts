@@ -32,7 +32,7 @@ export class MarkRenderer {
     userId?: number
   ): boolean {
     try {
-      const isSelfStroke = userId !== undefined && userId === this.currentUserId
+      const isSelfStroke = userId !== undefined && userId === this.currentUserId && isStroke
 
       const baseInfo: DrawMarkInfo = {
         id,
