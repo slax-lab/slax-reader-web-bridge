@@ -335,6 +335,27 @@ export class SlaxWebViewBridge {
     }
 
     /**
+     * 获取当前选区数据（不执行划线渲染）
+     *
+     * 仅读取当前选区并返回接口所需的数据结构，不进行本地渲染和幂等处理。
+     *
+     * @returns 选区数据的 JSON 字符串，或 null
+     */
+    public captureCurrentSelection(): string | null {
+        if (!this.markManager) {
+            console.warn('[WebView Bridge] captureCurrentSelection: selection monitoring not started');
+            return null;
+        }
+        try {
+            const result = this.markManager.captureCurrentSelection();
+            return result ? JSON.stringify(result) : null;
+        } catch (error) {
+            postToNativeBridge({ type: 'selectionError', error: `Failed to capture selection: ${error}` });
+            return null;
+        }
+    }
+
+    /**
      * 通过 uuid 将后端返回的 mark_id 关联到本地 MarkItemInfo 的 stroke 记录
      *
      * 在调用 strokeCurrentSelection 拿到 uuid 后，等后端 API 返回 mark_id，
