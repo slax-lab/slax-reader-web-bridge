@@ -33,6 +33,12 @@ export class MarkManager {
   /** 选区对应的 MarkItemInfo 变化时的回调（仅在选中时触发，取消选区不触发） */
   private onSelectionMarkInfoChange?: (markItemInfo: MarkItemInfo) => void
 
+  /** markItemInfos 数据变化时的回调，返回完整的 markItemInfos 数组 */
+  private onMarkItemInfosChange?: (markItemInfos: MarkItemInfo[]) => void
+
+  /** 抑制变化通知（用于内部连续操作避免重复通知） */
+  private _suppressChangeNotification = false
+
   /** 获取当前选中区域对应的 MarkItemInfo */
   get currentMarkItemInfo(): MarkItemInfo | null {
     return this._currentMarkItemInfo
@@ -42,11 +48,13 @@ export class MarkManager {
     container: HTMLElement,
     currentUserId?: number,
     onMarkTap?: (markId: string, event: TouchEvent) => void,
-    onSelectionMarkInfoChange?: (markItemInfo: MarkItemInfo) => void
+    onSelectionMarkInfoChange?: (markItemInfo: MarkItemInfo) => void,
+    onMarkItemInfosChange?: (markItemInfos: MarkItemInfo[]) => void
   ) {
     this.container = container
     this.renderer = new MarkRenderer(container, currentUserId, onMarkTap)
     this.onSelectionMarkInfoChange = onSelectionMarkInfoChange
+    this.onMarkItemInfosChange = onMarkItemInfosChange
   }
 
   /**
@@ -91,20 +99,40 @@ export class MarkManager {
   }
 
   /**
+   * 通知外部 markItemInfos 数据已变化
+   */
+  private notifyMarkItemInfosChanged(): void {
+    if (this._suppressChangeNotification) return
+    this.onMarkItemInfosChange?.([...this.markItemInfos])
+  }
+
+  /**
    * 绘制多个标记
    *
    * @param marks 后端返回的 MarkDetail 数据
    * @returns 键值对：uuid -> 该uuid对应的后端mark列表
    */
   drawMarks(marks: MarkDetail): DrawMarksResult {
+    // 保留旧的 markItemInfos，用于在重新生成时复用已有的 id
+    const previousMarkItemInfos = this.markItemInfos
+
+    this._suppressChangeNotification = true
+    this.clearAllMarks()
+    this._suppressChangeNotification = false
+
     const userMap = this.createUserMap(marks.user_list)
     const commentMap = this.buildCommentMap(marks.mark_list, userMap)
     this.buildCommentRelationships(marks.mark_list, commentMap)
-    this.markItemInfos = this.generateMarkItemInfos(marks.mark_list, commentMap)
+
+    console.log('[MarkManager] drawMarks 变动前 markItemInfos（共 %d 条）:', previousMarkItemInfos.length, JSON.parse(JSON.stringify(previousMarkItemInfos)))
+    this.markItemInfos = this.generateMarkItemInfos(marks.mark_list, commentMap, previousMarkItemInfos)
+    console.log('[MarkManager] drawMarks 变动后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
 
     for (const info of this.markItemInfos) {
       this.drawSingleMarkItem(info)
     }
+
+    this.notifyMarkItemInfosChanged()
 
     return this.buildDrawMarksResult(marks.mark_list)
   }
@@ -113,8 +141,12 @@ export class MarkManager {
    * 根据 UUID 删除标记
    */
   removeMarkByUuid(uuid: string): void {
+    console.log('[MarkManager] removeMarkByUuid 变动前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     this.renderer.removeMark(uuid)
     this.markItemInfos = this.markItemInfos.filter((info) => info.id !== uuid)
+    console.log('[MarkManager] removeMarkByUuid 变动后 markItemInfos（共 %d 条），已移除 uuid:', this.markItemInfos.length, uuid, JSON.parse(JSON.stringify(this.markItemInfos)))
+
+    this.notifyMarkItemInfosChanged()
   }
 
   /**
@@ -128,8 +160,12 @@ export class MarkManager {
    * 清除所有标记
    */
   clearAllMarks(): void {
+    console.log('[MarkManager] clearAllMarks 变动前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     this.renderer.clearAllMarks()
     this.markItemInfos = []
+    console.log('[MarkManager] clearAllMarks 变动后 markItemInfos 已清空（共 0 条）')
+
+    this.notifyMarkItemInfosChanged()
   }
 
   /**
@@ -143,21 +179,35 @@ export class MarkManager {
    * @returns 是否成功添加（false 表示 uuid 不存在或用户已有划线）
    */
   addStrokeByUuid(uuid: string, userId: number): boolean {
+    console.log('[MarkManager] addStrokeByUuid 入参 → uuid:', uuid, 'userId:', userId)
+    console.log('[MarkManager] addStrokeByUuid 当前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
     if (!infoItem) {
       console.warn('[MarkManager] addStrokeByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      console.log('[MarkManager] addStrokeByUuid 出参 → false（uuid 不存在）')
       return false
     }
+
+    console.log('[MarkManager] addStrokeByUuid 找到 MarkItemInfo:', JSON.parse(JSON.stringify(infoItem)))
+    console.log('[MarkManager] addStrokeByUuid 当前 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
 
     const alreadyStroked = infoItem.stroke.some((s) => s.userId === userId)
     if (alreadyStroked) {
       console.log('[MarkManager] addStrokeByUuid 用户已有划线，跳过，uuid:', uuid, 'userId:', userId)
+      console.log('[MarkManager] addStrokeByUuid 出参 → false（用户已有划线）')
       return false
     }
 
+    console.log('[MarkManager] addStrokeByUuid 变动前 stroke:', JSON.parse(JSON.stringify(infoItem.stroke)))
     infoItem.stroke.push({ mark_id: undefined, userId })
+    console.log('[MarkManager] addStrokeByUuid 变动后 stroke:', JSON.parse(JSON.stringify(infoItem.stroke)))
+
     this.updateMarkItemUI(infoItem)
-    console.log('[MarkManager] addStrokeByUuid 成功，uuid:', uuid, 'userId:', userId)
+    this.notifyMarkItemInfosChanged()
+
+    console.log('[MarkManager] addStrokeByUuid 操作完成后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+    console.log('[MarkManager] addStrokeByUuid 出参 → true')
     return true
   }
 
@@ -172,28 +222,47 @@ export class MarkManager {
    * @returns 是否成功删除（false 表示 uuid 不存在或该用户无划线）
    */
   removeStrokeByUuid(uuid: string, userId: number): boolean {
+    console.log('[MarkManager] removeStrokeByUuid 入参 → uuid:', uuid, 'userId:', userId)
+    console.log('[MarkManager] removeStrokeByUuid 当前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
     if (!infoItem) {
       console.warn('[MarkManager] removeStrokeByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      console.log('[MarkManager] removeStrokeByUuid 出参 → false（uuid 不存在）')
       return false
     }
+
+    console.log('[MarkManager] removeStrokeByUuid 找到 MarkItemInfo:', JSON.parse(JSON.stringify(infoItem)))
+    console.log('[MarkManager] removeStrokeByUuid 当前 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
 
     const strokeIndex = infoItem.stroke.findIndex((s) => s.userId === userId)
     if (strokeIndex === -1) {
       console.log('[MarkManager] removeStrokeByUuid 该用户无划线，跳过，uuid:', uuid, 'userId:', userId)
+      console.log('[MarkManager] removeStrokeByUuid 出参 → false（用户无划线）')
       return false
     }
 
+    console.log('[MarkManager] removeStrokeByUuid 变动前 stroke:', JSON.parse(JSON.stringify(infoItem.stroke)))
+    console.log('[MarkManager] removeStrokeByUuid 即将移除 stroke[%d]:', strokeIndex, JSON.parse(JSON.stringify(infoItem.stroke[strokeIndex])))
     infoItem.stroke.splice(strokeIndex, 1)
+    console.log('[MarkManager] removeStrokeByUuid 变动后 stroke:', JSON.parse(JSON.stringify(infoItem.stroke)))
 
-    // 划线和评论都为空时，整体删除该标记
     if (infoItem.stroke.length === 0 && infoItem.comments.length === 0) {
-      this.removeMarkByUuid(uuid)
       console.log('[MarkManager] removeStrokeByUuid 标记已无划线和评论，整体删除，uuid:', uuid)
+      console.log('[MarkManager] removeStrokeByUuid 删除前 markItemInfos（共 %d 条）:', this.markItemInfos.length)
+      this._suppressChangeNotification = true
+      this.removeMarkByUuid(uuid)
+      this._suppressChangeNotification = false
+      console.log('[MarkManager] removeStrokeByUuid 删除后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     } else {
       this.updateMarkItemUI(infoItem)
-      console.log('[MarkManager] removeStrokeByUuid 成功，uuid:', uuid, 'userId:', userId)
+      console.log('[MarkManager] removeStrokeByUuid 更新UI完成，剩余 stroke: %d, comments: %d', infoItem.stroke.length, infoItem.comments.length)
     }
+
+    console.log('[MarkManager] removeStrokeByUuid 操作完成后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+    console.log('[MarkManager] removeStrokeByUuid 出参 → true')
+
+    this.notifyMarkItemInfosChanged()
 
     return true
   }
@@ -209,11 +278,17 @@ export class MarkManager {
    * @returns 是否成功添加（false 表示 uuid 不存在）
    */
   addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
+    console.log('[MarkManager] addCommentByUuid 入参 → uuid:', uuid, 'userId:', userId, 'comment:', comment)
+    console.log('[MarkManager] addCommentByUuid 当前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
     if (!infoItem) {
       console.warn('[MarkManager] addCommentByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
       return false
     }
+
+    console.log('[MarkManager] addCommentByUuid 找到 MarkItemInfo:', JSON.parse(JSON.stringify(infoItem)))
+    console.log('[MarkManager] addCommentByUuid 变动前 comments（共 %d 条）:', infoItem.comments.length, JSON.parse(JSON.stringify(infoItem.comments)))
 
     const commentInfo: MarkCommentInfo = {
       markId: 0,
@@ -230,8 +305,12 @@ export class MarkManager {
     }
 
     infoItem.comments.push(commentInfo)
+    console.log('[MarkManager] addCommentByUuid 变动后 comments（共 %d 条）:', infoItem.comments.length, JSON.parse(JSON.stringify(infoItem.comments)))
+
     this.updateMarkItemUI(infoItem)
-    console.log('[MarkManager] addCommentByUuid 成功，uuid:', uuid, 'userId:', userId)
+    this.notifyMarkItemInfosChanged()
+
+    console.log('[MarkManager] addCommentByUuid 操作完成后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     return true
   }
 
@@ -353,7 +432,8 @@ export class MarkManager {
    */
   private generateMarkItemInfos(
     markList: BackendMarkInfo[],
-    commentMap: Map<number, MarkCommentInfo>
+    commentMap: Map<number, MarkCommentInfo>,
+    previousMarkItemInfos: MarkItemInfo[] = []
   ): MarkItemInfo[] {
     const infoItems: MarkItemInfo[] = []
 
@@ -393,8 +473,14 @@ export class MarkManager {
           }
         }
 
+        // 从旧的 markItemInfos 中查找相同 source 的项，复用其 id，
+        // 避免重新渲染后 id 变化导致外部持有的引用失效
+        const previousItem = previousMarkItemInfos.find((prev) =>
+          this.checkMarkSourceIsSame(prev.source, markSources)
+        )
+
         markInfoItem = {
-          id: generateUUID(),
+          id: previousItem?.id ?? generateUUID(),
           source: markSources,
           comments: [],
           stroke: [],
@@ -404,6 +490,7 @@ export class MarkManager {
       }
 
       if (LINE_TYPES.includes(mark.type)) {
+        if (!mark.comment && mark.is_deleted) continue
         markInfoItem.stroke.push({ mark_id: mark.id, userId: mark.user_id })
       } else if (COMMENT_TYPES.includes(mark.type)) {
         const comment = commentMap.get(mark.id)
@@ -484,8 +571,12 @@ export class MarkManager {
       const alreadyStroked = existing.stroke.some((s) => s.userId === (userId ?? 0))
       if (!alreadyStroked) {
         console.log('[MarkManager] strokeCurrentSelection 当前用户尚未划线，追加 stroke')
+        console.log('[MarkManager] strokeCurrentSelection 变动前 existing.stroke:', JSON.parse(JSON.stringify(existing.stroke)))
         existing.stroke.push({ mark_id: undefined, userId: userId ?? 0 })
+        console.log('[MarkManager] strokeCurrentSelection 变动后 existing.stroke:', JSON.parse(JSON.stringify(existing.stroke)))
+        console.log('[MarkManager] strokeCurrentSelection 变动后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
         this.drawSingleMarkItem(existing)
+        this.notifyMarkItemInfosChanged()
       } else {
         console.log('[MarkManager] strokeCurrentSelection 当前用户已有划线，跳过渲染')
       }
@@ -508,8 +599,11 @@ export class MarkManager {
       approx
     }
 
+    console.log('[MarkManager] strokeCurrentSelection 变动前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     this.markItemInfos.push(infoItem)
+    console.log('[MarkManager] strokeCurrentSelection 变动后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
     this.drawSingleMarkItem(infoItem)
+    this.notifyMarkItemInfosChanged()
 
     const result: StrokeCreateData = {
       uuid,
@@ -565,28 +659,32 @@ export class MarkManager {
    * @param userId 用户ID（用于精确匹配对应 stroke 条目，可选）
    */
   updateMarkIdByUuid(uuid: string, markId: number, userId?: number): void {
-    console.log('[MarkManager] updateMarkIdByUuid 开始，uuid:', uuid, 'markId:', markId, 'userId:', userId)
+    console.log('[MarkManager] updateMarkIdByUuid 入参 → uuid:', uuid, 'markId:', markId, 'userId:', userId)
     console.log('[MarkManager] updateMarkIdByUuid 当前 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
 
     const infoItem = this.markItemInfos.find((info) => info.id === uuid)
     if (!infoItem) {
       console.warn('[MarkManager] updateMarkIdByUuid 未找到对应的 MarkItemInfo，uuid:', uuid)
+      console.log('[MarkManager] updateMarkIdByUuid 出参 → void（uuid 不存在，未做任何变更）')
       return
     }
 
     console.log('[MarkManager] updateMarkIdByUuid 找到 MarkItemInfo:', JSON.parse(JSON.stringify(infoItem)))
-    console.log('[MarkManager] updateMarkIdByUuid 当前 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
+    console.log('[MarkManager] updateMarkIdByUuid 变动前 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
 
     const stroke = infoItem.stroke.find((s) => !s.mark_id && (userId === undefined || s.userId === userId))
     if (stroke) {
       console.log('[MarkManager] updateMarkIdByUuid 找到匹配 stroke，更新前:', JSON.parse(JSON.stringify(stroke)))
       stroke.mark_id = markId
       console.log('[MarkManager] updateMarkIdByUuid 更新后 stroke:', JSON.parse(JSON.stringify(stroke)))
+      this.notifyMarkItemInfosChanged()
     } else {
       console.warn('[MarkManager] updateMarkIdByUuid 未找到可更新的 stroke（mark_id 为空且 userId 匹配）', 'userId 过滤条件:', userId)
     }
 
-    console.log('[MarkManager] updateMarkIdByUuid 完成，最新 markItemInfos:', JSON.parse(JSON.stringify(this.markItemInfos)))
+    console.log('[MarkManager] updateMarkIdByUuid 变动后 stroke 列表:', JSON.parse(JSON.stringify(infoItem.stroke)))
+    console.log('[MarkManager] updateMarkIdByUuid 操作完成后 markItemInfos（共 %d 条）:', this.markItemInfos.length, JSON.parse(JSON.stringify(this.markItemInfos)))
+    console.log('[MarkManager] updateMarkIdByUuid 出参 → void（完成）')
   }
 
   /**

@@ -20,6 +20,7 @@ export class SlaxWebViewBridge {
     private markClickCleanup: (() => void) | null = null;
     private onMarkTap: ((markId: string, event: TouchEvent) => void) | null = null;
     private onSelectionMarkInfoChange: ((markItemInfo: MarkItemInfo) => void) | null = null;
+    private onMarkItemInfosChange: ((markItemInfos: MarkItemInfo[]) => void) | null = null;
 
     constructor() {
         this.init();
@@ -134,8 +135,20 @@ export class SlaxWebViewBridge {
         };
         this.onSelectionMarkInfoChange = onSelectionMarkInfoChange;
 
+        /**
+         * markItemInfos 数据变化时，通过 native bridge 通知原生端
+         */
+        const onMarkItemInfosChange = (markItemInfos: MarkItemInfo[]) => {
+            console.log('[WebView Bridge] MarkItemInfos changed, count:', markItemInfos.length);
+            postToNativeBridge({
+                type: 'markItemInfosChanged',
+                markItemInfos: JSON.stringify(markItemInfos)
+            });
+        };
+        this.onMarkItemInfosChange = onMarkItemInfosChange;
+
         this.markRenderer = new MarkRenderer(container, currentUserId, onMarkTap);
-        this.markManager = new MarkManager(container, currentUserId, onMarkTap, onSelectionMarkInfoChange);
+        this.markManager = new MarkManager(container, currentUserId, onMarkTap, onSelectionMarkInfoChange, onMarkItemInfosChange);
         this.selectionMonitor = new SelectionMonitor(container);
 
         this.selectionMonitor.start((data) => {
@@ -188,6 +201,7 @@ export class SlaxWebViewBridge {
         this.markRenderer = null;
         this.markManager = null;
         this.onSelectionMarkInfoChange = null;
+        this.onMarkItemInfosChange = null;
     }
 
     /**
@@ -422,7 +436,7 @@ export class SlaxWebViewBridge {
     public setCurrentUserId(userId: number): void {
         if (this.selectionContainer) {
             this.markRenderer = new MarkRenderer(this.selectionContainer, userId, this.onMarkTap ?? undefined);
-            this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined, this.onSelectionMarkInfoChange ?? undefined);
+            this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined, this.onSelectionMarkInfoChange ?? undefined, this.onMarkItemInfosChange ?? undefined);
         }
     }
 
