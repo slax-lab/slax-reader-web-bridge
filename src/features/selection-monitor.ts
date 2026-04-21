@@ -9,6 +9,7 @@ import { getElementPath, getRangeTextWithNewlines, getAllTextNodes } from '../ut
 export class SelectionMonitor {
   private container: HTMLElement
   private isMonitoring: boolean = false
+  private lastSelectionText: string = ''
   private onSelectionCallback?: (data: SelectionEventData) => void
   private selectionChangeTimeout?: ReturnType<typeof setTimeout>
 
@@ -54,6 +55,7 @@ export class SelectionMonitor {
     this.container.removeEventListener('touchend', this.handleMouseUp)
 
     this.isMonitoring = false
+    this.lastSelectionText = ''
     this.onSelectionCallback = undefined
   }
 
@@ -80,6 +82,12 @@ export class SelectionMonitor {
       if (!this.container.contains(range.commonAncestorContainer)) {
         return
       }
+
+      const currentText = selection.toString()
+      if (currentText === this.lastSelectionText) {
+        return
+      }
+      this.lastSelectionText = currentText
 
       const selectionInfo = this.parseSelectionFromRange(range)
       if (selectionInfo.selection.length === 0) {
