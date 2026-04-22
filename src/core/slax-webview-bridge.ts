@@ -7,14 +7,12 @@ import { scrollToAnchor, scrollToElement } from '../features/scroll';
 import { initBookmarkNotFoundHandlers } from '../features/bookmark-notfound';
 import { applyPolyfills } from '../utils/polyfill';
 import { SelectionMonitor } from '../features/selection-monitor';
-import { MarkRenderer } from '../features/mark-renderer';
 import { MarkManager } from '../features/mark-manager';
 import type { MarkDetail, MarkItemInfo } from '../types/selection';
 
 export class SlaxWebViewBridge {
     // selection 相关状态
     private selectionMonitor: SelectionMonitor | null = null;
-    private markRenderer: MarkRenderer | null = null;
     private markManager: MarkManager | null = null;
     private selectionContainer: HTMLElement | null = null;
     private markClickCleanup: (() => void) | null = null;
@@ -134,7 +132,6 @@ export class SlaxWebViewBridge {
         };
         this.onMarkItemInfosChange = onMarkItemInfosChange;
 
-        this.markRenderer = new MarkRenderer(container, currentUserId, onMarkTap);
         this.markManager = new MarkManager(container, currentUserId, onMarkTap, onMarkItemInfosChange);
         this.selectionMonitor = new SelectionMonitor(container);
 
@@ -179,7 +176,6 @@ export class SlaxWebViewBridge {
             this.markClickCleanup = null;
         }
         this.selectionContainer = null;
-        this.markRenderer = null;
         this.markManager = null;
         this.onMarkItemInfosChange = null;
     }
@@ -191,49 +187,6 @@ export class SlaxWebViewBridge {
         this.selectionMonitor?.clearSelection();
     }
 
-    /**
-     * 更新标记
-     */
-    public updateMark(id: string, isStroke: boolean, hasComment: boolean, userId?: number): void {
-        if (!this.markRenderer) return;
-        try {
-            this.markRenderer.updateMark(id, isStroke, hasComment, userId);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to update mark: ${error}` });
-        }
-    }
-
-    /**
-     * 删除标记
-     */
-    public removeMark(id: string): void {
-        if (!this.markRenderer) return;
-        try {
-            this.markRenderer.removeMark(id);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to remove mark: ${error}` });
-        }
-    }
-
-    /**
-     * 高亮标记
-     */
-    public highlightMark(id: string): void {
-        if (!this.markRenderer) return;
-        try {
-            this.markRenderer.highlightMark(id);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to highlight mark: ${error}` });
-        }
-    }
-
-
-    /**
-     * 获取所有标记ID
-     */
-    public getAllMarkIds(): string[] {
-        return this.markRenderer?.getAllMarkIds() ?? [];
-    }
 
     /**
      * 批量绘制标记（从后端 MarkDetail 数据）
@@ -252,52 +205,6 @@ export class SlaxWebViewBridge {
         } catch (error) {
             postToNativeBridge({ type: 'selectionError', error: `Failed to draw marks: ${error}` });
             return JSON.stringify({});
-        }
-    }
-
-    /**
-     * 根据 UUID 删除标记
-     */
-    public removeMarkByUuid(uuid: string): void {
-        if (!this.markManager) return;
-        try {
-            this.markManager.removeMarkByUuid(uuid);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to remove mark by UUID: ${error}` });
-        }
-    }
-
-    /**
-     * 对当前选中区域执行划线处理（不调用后端 API，仅本地渲染）
-     *
-     * 读取 window.getSelection() → 解析路径和 approx → 构建 MarkItemInfo → 渲染划线标记
-     *
-     * 返回 JSON 字符串，结构如下（StrokeCreateData）：
-     * ```
-     * {
-     *   uuid: string              // 本地 UUID，用于 updateMarkIdByUuid 关联后端 mark_id
-     *   source: StrokeCreateSource[]        // /v1/mark/create 接口的 source 字段
-     *   select_content: StrokeCreateSelectContent[] // 接口的 select_content 字段
-     *   approx_source?: StrokeCreateApproxSource    // 接口的 approx_source 字段（含 position_start/position_end）
-     * }
-     * ```
-     *
-     * 选区无效时返回 null。
-     *
-     * @param userId 当前用户ID（可选，用于判断是否为自己的划线样式）
-     * @returns StrokeCreateData 的 JSON 字符串，或 null
-     */
-    public strokeCurrentSelection(userId?: number): string | null {
-        if (!this.markManager) {
-            console.warn('[WebView Bridge] strokeCurrentSelection: selection monitoring not started');
-            return null;
-        }
-        try {
-            const result = this.markManager.strokeCurrentSelection(userId);
-            return result ? JSON.stringify(result) : null;
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to stroke selection: ${error}` });
-            return null;
         }
     }
 
@@ -322,100 +229,12 @@ export class SlaxWebViewBridge {
         }
     }
 
-    /**
-     * 通过 uuid 将后端返回的 mark_id 关联到本地 MarkItemInfo 的 stroke 记录
-     *
-     * 在调用 strokeCurrentSelection 拿到 uuid 后，等后端 API 返回 mark_id，
-     * 再调用此方法完成关联，以便后续删除/更新操作能找到正确的后端 ID。
-     *
-     * @param uuid strokeCurrentSelection 返回的 uuid
-     * @param markId 后端返回的 mark_id
-     * @param userId 用户ID（可选，用于精确匹配对应 stroke 条目）
-     */
-    public updateMarkIdByUuid(uuid: string, markId: number, userId?: number): void {
-        if (!this.markManager) return;
-        try {
-            this.markManager.updateMarkIdByUuid(uuid, markId, userId);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to update mark id by UUID: ${error}` });
-        }
-    }
-
-    /**
-     * 根据 UUID 为指定用户添加划线
-     *
-     * 更新 MarkItemInfo 的 stroke 数组并刷新页面中对应 slax-mark 的样式。
-     * 已有该用户划线时幂等跳过。
-     *
-     * @param uuid MarkItemInfo 的本地 UUID
-     * @param userId 执行划线的用户ID
-     * @returns 是否成功添加
-     */
-    public addStrokeByUuid(uuid: string, userId: number): boolean {
-        if (!this.markManager) {
-            console.warn('[WebView Bridge] addStrokeByUuid: selection monitoring not started');
-            return false;
-        }
-        try {
-            return this.markManager.addStrokeByUuid(uuid, userId);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to add stroke by UUID: ${error}` });
-            return false;
-        }
-    }
-
-    /**
-     * 根据 UUID 删除指定用户的划线
-     *
-     * 从 MarkItemInfo 的 stroke 数组中移除该用户的记录并刷新 slax-mark 样式。
-     * 若 stroke 和 comments 均为空，则整体删除该标记。
-     *
-     * @param uuid MarkItemInfo 的本地 UUID
-     * @param userId 要删除划线的用户ID
-     * @returns 是否成功删除
-     */
-    public removeStrokeByUuid(uuid: string, userId: number): boolean {
-        if (!this.markManager) {
-            console.warn('[WebView Bridge] removeStrokeByUuid: selection monitoring not started');
-            return false;
-        }
-        try {
-            return this.markManager.removeStrokeByUuid(uuid, userId);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to remove stroke by UUID: ${error}` });
-            return false;
-        }
-    }
-
-    /**
-     * 根据 UUID 添加评论
-     *
-     * 在 MarkItemInfo 的 comments 数组中追加一条评论并刷新 slax-mark 样式（添加 .comment class）。
-     *
-     * @param uuid MarkItemInfo 的本地 UUID
-     * @param userId 发表评论的用户ID
-     * @param comment 评论内容
-     * @returns 是否成功添加
-     */
-    public addCommentByUuid(uuid: string, userId: number, comment: string): boolean {
-        if (!this.markManager) {
-            console.warn('[WebView Bridge] addCommentByUuid: selection monitoring not started');
-            return false;
-        }
-        try {
-            return this.markManager.addCommentByUuid(uuid, userId, comment);
-        } catch (error) {
-            postToNativeBridge({ type: 'selectionError', error: `Failed to add comment by UUID: ${error}` });
-            return false;
-        }
-    }
 
     /**
      * 设置当前用户ID（会重建内部 renderer/manager）
      */
     public setCurrentUserId(userId: number): void {
         if (this.selectionContainer) {
-            this.markRenderer = new MarkRenderer(this.selectionContainer, userId, this.onMarkTap ?? undefined);
             this.markManager = new MarkManager(this.selectionContainer, userId, this.onMarkTap ?? undefined, this.onMarkItemInfosChange ?? undefined);
         }
     }
