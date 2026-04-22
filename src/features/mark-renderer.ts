@@ -1,5 +1,5 @@
 import type { DrawMarkInfo, MarkPathItem } from '../types/selection'
-import { removeOuterTag, getAllTextNodes } from '../utils/selection-utils'
+import { removeOuterTag, getAllTextNodes, fixCssSelector } from '../utils/selection-utils'
 
 /**
  * 标记渲染器
@@ -78,8 +78,10 @@ export class MarkRenderer {
       | { type: 'image'; ele: HTMLImageElement }
     )[] = []
 
+
+    const path = fixCssSelector(markItem.path)
     if (markItem.type === 'text') {
-      const baseElement = this.container.querySelector(markItem.path) as HTMLElement
+      const baseElement = this.container.querySelector(path) as HTMLElement
       if (!baseElement) {
         return infos
       }
@@ -106,10 +108,10 @@ export class MarkRenderer {
         }
       }
     } else if (markItem.type === 'image') {
-      let element = this.container.querySelector(markItem.path) as HTMLImageElement
+      let element = this.container.querySelector(path) as HTMLImageElement
       if (!element || !element.src) {
         // 尝试在slax-mark标签内查找
-        const paths = markItem.path.split('>')
+        const paths = path.split('>')
         const tailIdx = paths.length - 1
         const newPath = [...paths.slice(0, tailIdx), ' slax-mark ', paths[tailIdx]]
         element = this.container.querySelector(newPath.join('>')) as HTMLImageElement

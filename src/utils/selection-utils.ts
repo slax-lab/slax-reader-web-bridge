@@ -143,6 +143,20 @@ export function getRangeTextWithNewlines(range: Range): string {
 }
 
 /**
+ * 修复无效的 CSS 选择器（自动转换以数字开头的 ID 和 Class 为属性选择器）
+ */
+export function fixCssSelector(selector: string): string {
+  const regex = /(\[[^\]]+\])|#(\d[-\w]*)|\.((\d[-\w]*))/g
+
+  return selector.replace(regex, (match, attrNode, idMatch, _fullClass, classMatch) => {
+    if (attrNode) return match
+    if (idMatch) return `[id="${idMatch}"]`
+    if (classMatch) return `[class~="${classMatch}"]`
+    return match
+  })
+}
+
+/**
  * 深度比较两个对象是否相等
  */
 export function deepEqual(obj1: any, obj2: any): boolean {
