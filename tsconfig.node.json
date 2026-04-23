@@ -2,11 +2,13 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "strict": true,
     "skipLibCheck": true,
-    "composite": true
+    "composite": true,
+    "outDir": ".tsbuild/node",
+    "types": ["node"]
   },
-  "include": ["rollup.config.ts"]
+  "include": ["rollup.config.ts", "rollup-env.d.ts"]
 }

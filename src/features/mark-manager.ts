@@ -678,15 +678,6 @@ export class MarkManager {
   }
 
   /**
-   * 将 Range 转换为 MarkPathItem 数组
-   *
-   * @deprecated 内部请改用 buildPathsFromSelectionInfo，避免重复解析 Range
-   */
-  private parseRangeToPaths(range: Range): MarkPathItem[] {
-    return this.buildPathsFromSelectionInfo(this.getSelectionInfoFromRange(range))
-  }
-
-  /**
    * 从已解析的选区节点信息构建 MarkPathItem 数组（供渲染使用）
    *
    * 相邻同 path 的文本项合并为一个条目；SLAX-MARK 标签会被穿透，
