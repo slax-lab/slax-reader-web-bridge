@@ -27,75 +27,54 @@ export class MarkManager {
   private renderer: MarkRenderer
   private markItemInfos: MarkItemInfo[] = []
 
-  /** 当前选中区域对应的 MarkItemInfo（选区存在时有值，取消选区后为 null） */
-  private _currentMarkItemInfo: MarkItemInfo | null = null
-
-  /** 选区对应的 MarkItemInfo 变化时的回调（仅在选中时触发，取消选区不触发） */
-  private onSelectionMarkInfoChange?: (markItemInfo: MarkItemInfo) => void
-
   /** markItemInfos 数据变化时的回调，返回完整的 markItemInfos 数组 */
   private onMarkItemInfosChange?: (markItemInfos: MarkItemInfo[]) => void
 
   /** 抑制变化通知（用于内部连续操作避免重复通知） */
   private _suppressChangeNotification = false
 
-  /** 获取当前选中区域对应的 MarkItemInfo */
-  get currentMarkItemInfo(): MarkItemInfo | null {
-    return this._currentMarkItemInfo
-  }
-
   constructor(
     container: HTMLElement,
     currentUserId?: number,
     onMarkTap?: (markId: string, event: TouchEvent) => void,
-    onSelectionMarkInfoChange?: (markItemInfo: MarkItemInfo) => void,
     onMarkItemInfosChange?: (markItemInfos: MarkItemInfo[]) => void
   ) {
     this.container = container
     this.renderer = new MarkRenderer(container, currentUserId, onMarkTap)
-    this.onSelectionMarkInfoChange = onSelectionMarkInfoChange
     this.onMarkItemInfosChange = onMarkItemInfosChange
   }
 
   /**
-   * 根据当前选区检测对应的 MarkItemInfo
+   * 根据选区 paths 解析对应的 MarkItemInfo
    *
-   * 解析选区的 paths，如果与已有的 MarkItemInfo 的 source 完全匹配，
-   * 则返回该 MarkItemInfo；否则创建一个临时包装的 MarkItemInfo。
-   * 同时更新 currentMarkItemInfo 并触发回调。
-   *
-   * @param paths 当前选区解析出的 MarkPathItem 数组
-   * @param approx 当前选区的近似匹配信息
+   * 如果与已有的 MarkItemInfo 的 source 完全匹配，则返回该 MarkItemInfo；
+   * 否则创建一个临时的 MarkItemInfo。
    */
-  detectSelectionMarkItemInfo(paths: MarkPathItem[], approx?: MarkPathApprox): void {
-    if (paths.length === 0) return
+  resolveMarkItemInfo(paths: MarkPathItem[], approx?: MarkPathApprox): MarkItemInfo | null {
 
-    // 选区未变化时跳过，避免 selectionchange 事件重复触发导致回调被反复调用
-    if (this._currentMarkItemInfo && this.checkMarkSourceIsSame(this._currentMarkItemInfo.source, paths)) {
-      return
+    if (paths.length === 0) {
+      return null
     }
 
     const existing = this.markItemInfos.find((info) =>
       this.checkMarkSourceIsSame(info.source, paths)
     )
 
-    const markItemInfo: MarkItemInfo = existing ?? {
+    if (existing) {
+      if (!existing.approx && approx) {
+        existing.approx = approx
+      }
+      return existing
+    }
+
+    const created: MarkItemInfo = {
       id: '',
       source: paths,
       comments: [],
       stroke: [],
       approx
     }
-
-    this._currentMarkItemInfo = markItemInfo
-    this.onSelectionMarkInfoChange?.(markItemInfo)
-  }
-
-  /**
-   * 清除当前选区对应的 MarkItemInfo（取消选区时调用，不触发回调）
-   */
-  clearCurrentMarkItemInfo(): void {
-    this._currentMarkItemInfo = null
+    return created
   }
 
   /**
@@ -461,6 +440,17 @@ export class MarkManager {
       let markInfoItem = infoItems.find((infoItem) =>
         this.checkMarkSourceIsSame(infoItem.source, markSources)
       )
+
+      if (markInfoItem && !markInfoItem.approx && mark.approx_source) {
+        try {
+          const newRange = this.getRangeFromApprox(mark.approx_source)
+          const rawText = newRange ? getRangeTextWithNewlines(newRange) : undefined
+          mark.approx_source.raw_text = rawText
+        } catch (error) {
+          console.error('create raw text failed', error, mark.approx_source?.exact)
+        }
+        markInfoItem.approx = mark.approx_source
+      }
 
       if (!markInfoItem) {
         if (mark.approx_source) {

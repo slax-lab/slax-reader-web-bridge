@@ -5,6 +5,7 @@ import { getElementPath, getRangeTextWithNewlines, getAllTextNodes } from '../ut
  * 选择监听器
  *
  * 负责监听用户的文本选择操作
+ * 仅通过 selectionchange 事件驱动，避免多监听源导致重复触发
  */
 export class SelectionMonitor {
   private container: HTMLElement
@@ -31,12 +32,7 @@ export class SelectionMonitor {
     this.onSelectionCallback = callback
     this.onSelectionClearedCallback = onSelectionCleared
 
-    // 使用 selectionchange 事件（更适合 Android WebView）
     document.addEventListener('selectionchange', this.handleSelectionChange)
-
-    // 保留 mouseup 和 touchend 作为备用（兼容性）
-    this.container.addEventListener('mouseup', this.handleMouseUp)
-    this.container.addEventListener('touchend', this.handleMouseUp)
 
     this.isMonitoring = true
   }
@@ -55,8 +51,6 @@ export class SelectionMonitor {
     }
 
     document.removeEventListener('selectionchange', this.handleSelectionChange)
-    this.container.removeEventListener('mouseup', this.handleMouseUp)
-    this.container.removeEventListener('touchend', this.handleMouseUp)
 
     this.isMonitoring = false
     this.lastSelectionText = ''
@@ -75,14 +69,14 @@ export class SelectionMonitor {
     this.selectionChangeTimeout = setTimeout(() => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) {
-        this.onSelectionClearedCallback?.()
+        this.clearLastSelection()
         return
       }
 
       const range = selection.getRangeAt(0)
 
       if (range.collapsed) {
-        this.onSelectionClearedCallback?.()
+        this.clearLastSelection()
         return
       }
 
@@ -110,29 +104,13 @@ export class SelectionMonitor {
   }
 
   /**
-   * 处理鼠标抬起事件（备用方案）
+   * 清除上次选区记录并通知外部
    */
-  private handleMouseUp = (event: MouseEvent | TouchEvent): void => {
-    setTimeout(() => {
-      const selection = window.getSelection()
-      if (!selection || selection.rangeCount === 0) {
-        return
-      }
-
-      const range = selection.getRangeAt(0)
-      if (range.collapsed) {
-        return
-      }
-
-      const selectionInfo = this.parseSelection(range, event)
-      if (selectionInfo.selection.length === 0) {
-        return
-      }
-
-      if (this.onSelectionCallback) {
-        this.onSelectionCallback(selectionInfo)
-      }
-    }, 10)
+  private clearLastSelection(): void {
+    if (this.lastSelectionText !== '') {
+      this.lastSelectionText = ''
+      this.onSelectionClearedCallback?.()
+    }
   }
 
   /**
@@ -148,19 +126,7 @@ export class SelectionMonitor {
   }
 
   /**
-   * 解析选择的内容（带事件对象）
-   */
-  private parseSelection(range: Range, event: MouseEvent | TouchEvent): SelectionEventData {
-    const selection = this.getSelectionInfo(range)
-    const paths = this.convertSelectionToPaths(selection)
-    const approx = this.getApproxInfo(range)
-    const position = this.getPositionInfo(range, event)
-
-    return { selection, paths, approx, position }
-  }
-
-  /**
-   * 从 range 获取位置信息（不需要事件对象）
+   * 从 range 获取位置信息
    */
   private getPositionInfoFromRange(range: Range): PositionInfo {
     const rangeRect = range.getBoundingClientRect()
@@ -168,36 +134,6 @@ export class SelectionMonitor {
 
     const clientX = rangeRect.left + rangeRect.width / 2
     const clientY = rangeRect.bottom
-
-    return {
-      x: clientX - containerRect.left,
-      y: clientY - containerRect.top,
-      width: rangeRect.width,
-      height: rangeRect.height,
-      top: rangeRect.top - containerRect.top,
-      left: rangeRect.left - containerRect.left,
-      right: rangeRect.right - containerRect.left,
-      bottom: rangeRect.bottom - containerRect.top
-    }
-  }
-
-  /**
-   * 获取位置信息（用于显示菜单）
-   */
-  private getPositionInfo(range: Range, event: MouseEvent | TouchEvent): PositionInfo {
-    const rangeRect = range.getBoundingClientRect()
-    const containerRect = this.container.getBoundingClientRect()
-
-    let clientX: number
-    let clientY: number
-
-    if (event instanceof MouseEvent) {
-      clientX = event.clientX
-      clientY = event.clientY
-    } else {
-      clientX = event.changedTouches[0].clientX
-      clientY = event.changedTouches[0].clientY
-    }
 
     return {
       x: clientX - containerRect.left,

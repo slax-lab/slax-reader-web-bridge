@@ -7,6 +7,7 @@ export function postToNativeBridge(payload: any): boolean {
     const message = JSON.stringify(payload);
     const platform = detectPlatform();
 
+
     // Android 平台
     if (platform === 'android') {
         window.NativeBridge!.postMessage(message);
@@ -19,6 +20,6 @@ export function postToNativeBridge(payload: any): boolean {
         return true;
     }
 
-    console.warn('Native bridge not available');
+    console.warn('[NativeBridge] Native bridge not available, platform:', platform);
     return false;
 }
