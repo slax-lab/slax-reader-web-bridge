@@ -7,6 +7,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "NODE_OPTIONS=\"--loader ts-node/esm\" rollup -c rollup.config.ts",
+    "build:dev": "ROLLUP_WATCH=true NODE_OPTIONS=\"--loader ts-node/esm\" rollup -c rollup.config.ts",
     "dev": "NODE_OPTIONS=\"--loader ts-node/esm\" rollup -c rollup.config.ts -w",
     "demo": "SERVE=true NODE_OPTIONS=\"--loader ts-node/esm\" rollup -c rollup.config.ts -w",
     "test": "jest",

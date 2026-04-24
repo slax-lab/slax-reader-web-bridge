@@ -2,6 +2,11 @@
   "references": [
     { "path": "./tsconfig.node.json" }
   ],
+  "ts-node": {
+    "compilerOptions": {
+      "moduleResolution": "Node"
+    }
+  },
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",

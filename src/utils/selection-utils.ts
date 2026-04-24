@@ -143,17 +143,51 @@ export function getRangeTextWithNewlines(range: Range): string {
 }
 
 /**
- * 修复无效的 CSS 选择器（自动转换以数字开头的 ID 和 Class 为属性选择器）
+ * 修复无效的 CSS 选择器
+ * 处理范围：
+ *   1. 以数字开头的 ID / Class
+ *   2. 含有特殊字符（: * ! / [ ] 等）的 Class（如 Tailwind CSS 变体类名）
+ *   3. 含有转义符（反斜杠）的 Class
  */
 export function fixCssSelector(selector: string): string {
-  const regex = /(\[[^\]]+\])|#(\d[-\w]*)|\.((\d[-\w]*))/g
+  const preserved: string[] = []
+  const preserve = (m: string): string => {
+    preserved.push(m)
+    return `__ATTR_${preserved.length - 1}__`
+  }
 
-  return selector.replace(regex, (match, attrNode, idMatch, _fullClass, classMatch) => {
-    if (attrNode) return match
-    if (idMatch) return `[id="${idMatch}"]`
-    if (classMatch) return `[class~="${classMatch}"]`
-    return match
-  })
+  // 保护属性选择器 [xxx]
+  let safened = selector.replace(/\[[^\]]+\]/g, preserve)
+  // 保护伪元素 ::before 等
+  safened = safened.replace(/::[a-zA-Z-]+/g, preserve)
+  // 保护带参数的伪类 :nth-child(...) 等
+  safened = safened.replace(/:(?:nth-child|nth-of-type|nth-last-child|nth-last-of-type)\([^)]+\)/g, preserve)
+  // 保护简单伪类 :hover, :focus 等
+  safened = safened.replace(
+    /:(?:hover|focus|active|visited|checked|disabled|enabled|first-child|last-child|first-of-type|last-of-type|only-child|only-of-type|empty|not|is|where|has|root|lang|target|focus-within|focus-visible|placeholder-shown|default|read-only|read-write|required|optional|valid|invalid|in-range|out-of-range)(?=[\s,.>+~:[\]()#]|$)/g,
+    preserve
+  )
+
+  // 以数字开头的 ID → [id="xxx"]
+  safened = safened.replace(/#(\d[-\w]*)/g, (_, id) => `[id="${id}"]`)
+
+  // 含特殊字符或以数字开头的 Class → [class~="xxx"]
+  safened = safened.replace(
+    /\.(?:\\.|[a-zA-Z0-9_-]|[*:!/@])+/g,
+    (match) => {
+      const raw = match.slice(1)
+      if (/[\\:*!/@]/.test(raw) || /^\d/.test(raw)) {
+        const cleaned = raw.replace(/\\(.)/g, '$1')
+        return `[class~="${cleaned}"]`
+      }
+      return match
+    }
+  )
+
+  // 还原暂存的合法选择器片段
+  safened = safened.replace(/__ATTR_(\d+)__/g, (_, i) => preserved[+i])
+
+  return safened
 }
 
 /**
