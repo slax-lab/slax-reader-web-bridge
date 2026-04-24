@@ -95,6 +95,10 @@ export class SlaxWebViewBridge {
         const onMarkTap = (markId: string, event: TouchEvent) => {
             if (event.changedTouches.length === 0) return;
 
+            // 若点击目标属于某个更内层的 slax-mark，则外层 mark 的回调跳过
+            const innerMark = (event.target as Element).closest('slax-mark');
+            if (innerMark && (innerMark as HTMLElement).dataset.uuid !== markId) return;
+
             // 有文本选中说明用户在选词，不触发划线点击
             const selection = window.getSelection();
             if (selection && !selection.isCollapsed) return;
