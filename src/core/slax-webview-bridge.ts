@@ -108,7 +108,11 @@ export class SlaxWebViewBridge {
             const allMarks = Array.from(
                 container.querySelectorAll(`slax-mark[data-uuid="${markId}"]`)
             );
-            const fullText = allMarks.map((el) => el.textContent || '').join('');
+            const fullText = allMarks.map((el) => {
+                const firstChild = el.firstElementChild;
+                if (firstChild?.tagName === 'IMG') return ` 🖼️ ${el.textContent}`;
+                return el.textContent || '';
+            }).join('');
             const markItemInfo = this.markManager?.getMarkItemInfoByUuid(markId) ?? null;
 
             postToNativeBridge({

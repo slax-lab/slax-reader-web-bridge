@@ -61,14 +61,21 @@ export function getElementPath(element: Element, container: HTMLElement): string
     let selector = current.tagName.toLowerCase()
 
     if (current.id) {
-      selector += `#${current.id}`
+      const id = current.id
+      if (/^\d/.test(id)) {
+        selector += `[id="${id}"]`
+      } else if (/[^a-zA-Z0-9_-]/.test(id)) {
+        selector += `[id="${id}"]`
+      } else {
+        selector += `#${id}`
+      }
     }
 
     if (current.className && typeof current.className === 'string') {
       const classes = current.className.trim().split(/\s+/).filter(c => c)
       for (const cls of classes) {
-        if (/[\\:*!/@]/.test(cls) || /^\d/.test(cls)) {
-          selector += `[class~="${cls}"]`
+        if (/[^a-zA-Z0-9_-]/.test(cls) || /^\d/.test(cls)) {
+          selector += `[class~="${cls.replace(/"/g, '\\"')}"]`
         } else {
           selector += `.${cls}`
         }
@@ -78,7 +85,12 @@ export function getElementPath(element: Element, container: HTMLElement): string
     if (current.parentElement) {
       const siblings = Array.from(current.parentElement.children)
       if (siblings.length > 1) {
-        const hasDuplicate = siblings.some(s => s !== current && s.matches(selector))
+        let hasDuplicate = false
+        try {
+          hasDuplicate = siblings.some(s => s !== current && s.matches(selector))
+        } catch {
+          hasDuplicate = true
+        }
         if (hasDuplicate) {
           const index = siblings.indexOf(current)
           selector += `:nth-child(${index + 1})`
@@ -177,10 +189,10 @@ export function fixCssSelector(selector: string): string {
 
   // 含特殊字符或以数字开头的 Class → [class~="xxx"]
   safened = safened.replace(
-    /\.(?:\\.|[a-zA-Z0-9_-]|[*:!/@])+/g,
+    /\.(?:\\.|[^\s.#>+~[\](),{}\x01])+/g,
     (match) => {
       const raw = match.slice(1)
-      if (/[\\:*!/@]/.test(raw) || /^\d/.test(raw)) {
+      if (/[^a-zA-Z0-9_-]/.test(raw) || /^\d/.test(raw)) {
         const cleaned = raw.replace(/\\(.)/g, '$1')
         return `[class~="${cleaned}"]`
       }

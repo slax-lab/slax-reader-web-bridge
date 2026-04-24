@@ -782,7 +782,7 @@ export class MarkManager {
           result.push({ type: 'text', text, src: '' })
         }
       } else if (item.type === 'image') {
-        result.push({ type: 'image', text: '', src: item.element.src })
+        result.push({ type: 'image', text: ' 🖼️ ', src: item.element.src })
       }
     }
 
