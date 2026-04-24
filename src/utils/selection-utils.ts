@@ -60,25 +60,29 @@ export function getElementPath(element: Element, container: HTMLElement): string
   while (current && current !== container) {
     let selector = current.tagName.toLowerCase()
 
-    // 添加ID
     if (current.id) {
       selector += `#${current.id}`
     }
 
-    // 添加类名
     if (current.className && typeof current.className === 'string') {
       const classes = current.className.trim().split(/\s+/).filter(c => c)
-      if (classes.length > 0) {
-        selector += '.' + classes.join('.')
+      for (const cls of classes) {
+        if (/[\\:*!/@]/.test(cls) || /^\d/.test(cls)) {
+          selector += `[class~="${cls}"]`
+        } else {
+          selector += `.${cls}`
+        }
       }
     }
 
-    // 添加nth-child
     if (current.parentElement) {
       const siblings = Array.from(current.parentElement.children)
-      const index = siblings.indexOf(current)
       if (siblings.length > 1) {
-        selector += `:nth-child(${index + 1})`
+        const hasDuplicate = siblings.some(s => s !== current && s.matches(selector))
+        if (hasDuplicate) {
+          const index = siblings.indexOf(current)
+          selector += `:nth-child(${index + 1})`
+        }
       }
     }
 
@@ -153,7 +157,7 @@ export function fixCssSelector(selector: string): string {
   const preserved: string[] = []
   const preserve = (m: string): string => {
     preserved.push(m)
-    return `__ATTR_${preserved.length - 1}__`
+    return `\x01${preserved.length - 1}\x01`
   }
 
   // 保护属性选择器 [xxx]
@@ -185,7 +189,7 @@ export function fixCssSelector(selector: string): string {
   )
 
   // 还原暂存的合法选择器片段
-  safened = safened.replace(/__ATTR_(\d+)__/g, (_, i) => preserved[+i])
+  safened = safened.replace(/\x01(\d+)\x01/g, (_, i) => preserved[+i])
 
   return safened
 }
