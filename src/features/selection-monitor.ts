@@ -14,6 +14,10 @@ export class SelectionMonitor {
   private onSelectionCallback?: (data: SelectionEventData) => void
   private onSelectionClearedCallback?: () => void
   private selectionChangeTimeout?: ReturnType<typeof setTimeout>
+  /** 用户手指/鼠标是否正在按下 */
+  private isPointerDown: boolean = false
+  /** 手指按下期间是否产生了待处理的选区变化 */
+  private hasPendingSelection: boolean = false
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -33,6 +37,11 @@ export class SelectionMonitor {
     this.onSelectionClearedCallback = onSelectionCleared
 
     document.addEventListener('selectionchange', this.handleSelectionChange)
+    document.addEventListener('touchstart', this.handlePointerDown, { passive: true })
+    document.addEventListener('mousedown', this.handlePointerDown, { passive: true })
+    document.addEventListener('touchend', this.handlePointerUp, { passive: true })
+    document.addEventListener('touchcancel', this.handleTouchCancel, { passive: true })
+    document.addEventListener('mouseup', this.handlePointerUp, { passive: true })
 
     this.isMonitoring = true
   }
@@ -51,15 +60,52 @@ export class SelectionMonitor {
     }
 
     document.removeEventListener('selectionchange', this.handleSelectionChange)
+    document.removeEventListener('touchstart', this.handlePointerDown)
+    document.removeEventListener('mousedown', this.handlePointerDown)
+    document.removeEventListener('touchend', this.handlePointerUp)
+    document.removeEventListener('touchcancel', this.handleTouchCancel)
+    document.removeEventListener('mouseup', this.handlePointerUp)
 
     this.isMonitoring = false
     this.lastSelectionText = ''
+    this.isPointerDown = false
+    this.hasPendingSelection = false
     this.onSelectionCallback = undefined
     this.onSelectionClearedCallback = undefined
   }
 
   /**
+   * 手指/鼠标按下
+   */
+  private handlePointerDown = (): void => {
+    this.isPointerDown = true
+    this.hasPendingSelection = false
+  }
+
+  /**
+   * 手指/鼠标松开，如果有待处理的选区则立即触发回调
+   */
+  private handlePointerUp = (): void => {
+    this.isPointerDown = false
+    if (this.hasPendingSelection) {
+      this.hasPendingSelection = false
+      this.processSelection()
+    }
+  }
+
+  /**
+   * iOS 长按选择文本时，系统接管触摸会触发 touchcancel 而非 touchend。
+   * 此时释放 isPointerDown，让后续 selectionchange 防抖正常触发回调。
+   */
+  private handleTouchCancel = (): void => {
+    this.isPointerDown = false
+  }
+
+  /**
    * 处理选择变化事件（带防抖）
+   *
+   * 手指按下期间仅标记"有待处理"，不触发回调；
+   * 手指松开后或非触摸场景（如程序设置选区）才真正通知原生端。
    */
   private handleSelectionChange = (): void => {
     if (this.selectionChangeTimeout) {
@@ -67,40 +113,51 @@ export class SelectionMonitor {
     }
 
     this.selectionChangeTimeout = setTimeout(() => {
-      const selection = window.getSelection()
-      if (!selection || selection.rangeCount === 0) {
-        this.clearLastSelection()
+      if (this.isPointerDown) {
+        // 手指仍按下，仅标记待处理，不触发回调
+        this.hasPendingSelection = true
         return
       }
-
-      const range = selection.getRangeAt(0)
-
-      if (range.collapsed) {
-        this.clearLastSelection()
-        return
-      }
-
-      if (!this.container.contains(range.commonAncestorContainer)) {
-        return
-      }
-
-      const currentText = selection.toString()
-      if (currentText === this.lastSelectionText) {
-        return
-      }
-      this.lastSelectionText = currentText
-
-      const selectionInfo = this.parseSelectionFromRange(range)
-      if (selectionInfo.selection.length === 0) {
-        return
-      }
-
-      if (this.onSelectionCallback) {
-        this.onSelectionCallback(selectionInfo)
-      }
-
+      this.processSelection()
       this.selectionChangeTimeout = undefined
     }, 300)
+  }
+
+  /**
+   * 实际处理选区并通知回调
+   */
+  private processSelection(): void {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) {
+      this.clearLastSelection()
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+
+    if (range.collapsed) {
+      this.clearLastSelection()
+      return
+    }
+
+    if (!this.container.contains(range.commonAncestorContainer)) {
+      return
+    }
+
+    const currentText = selection.toString()
+    if (currentText === this.lastSelectionText) {
+      return
+    }
+    this.lastSelectionText = currentText
+
+    const selectionInfo = this.parseSelectionFromRange(range)
+    if (selectionInfo.selection.length === 0) {
+      return
+    }
+
+    if (this.onSelectionCallback) {
+      this.onSelectionCallback(selectionInfo)
+    }
   }
 
   /**
