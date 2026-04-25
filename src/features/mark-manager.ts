@@ -613,7 +613,7 @@ export class MarkManager {
    *
    * @returns StrokeCreateData（不含 uuid），若选区无效则返回 null
    */
-  captureCurrentSelection(): { source: StrokeCreateSource[]; select_content: StrokeCreateSelectContent[]; approx_source: StrokeCreateApproxSource } | null {
+  captureCurrentSelection(): { source: StrokeCreateSource[]; select_content: StrokeCreateSelectContent[]; approx_source: StrokeCreateApproxSource; text: string } | null {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return null
 
@@ -635,7 +635,8 @@ export class MarkManager {
     return {
       source: apiSource,
       select_content: selectContent,
-      approx_source: approxCreate
+      approx_source: approxCreate,
+      text: selectContent.map((item) => item.text).join('')
     }
   }
 
