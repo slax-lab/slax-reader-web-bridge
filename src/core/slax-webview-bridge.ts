@@ -1,16 +1,23 @@
 import { postToNativeBridge } from '../bridge/native-bridge';
 import { getContentHeight } from '../features/content';
-import { initImageClickHandlers } from '../features/images';
 import { highlightElement } from '../features/highlight';
 import { findMatchingElement } from '../features/search';
 import { scrollToAnchor, scrollToElement } from '../features/scroll';
-import { initBookmarkNotFoundHandlers } from '../features/bookmark-notfound';
 import { applyPolyfills } from '../utils/polyfill';
 import { SelectionMonitor } from '../features/selection-monitor';
 import { MarkManager } from '../features/mark-manager';
+import { DefaultDOMHandler } from '../handlers/default-dom-handler';
+import { InfoPackDOMHandler } from '../handlers/infopack-dom-handler';
+import type { InfoPack } from '../handlers/types';
 import type { MarkDetail, MarkItemInfo } from '../types/selection';
 
+const BRIDGE_VERSION = '1.0.0';
+
 export class SlaxWebViewBridge {
+    // handler
+    private defaultHandler: DefaultDOMHandler;
+    private infoPackHandler: InfoPackDOMHandler;
+
     // selection 相关状态
     private selectionMonitor: SelectionMonitor | null = null;
     private markManager: MarkManager | null = null;
@@ -20,7 +27,13 @@ export class SlaxWebViewBridge {
     private onMarkItemInfosChange: ((markItemInfos: MarkItemInfo[]) => void) | null = null;
 
     constructor() {
+        this.defaultHandler = new DefaultDOMHandler();
+        this.infoPackHandler = new InfoPackDOMHandler();
         this.init();
+    }
+
+    public getVersion(): string {
+        return BRIDGE_VERSION;
     }
 
     private init() {
@@ -37,16 +50,27 @@ export class SlaxWebViewBridge {
         console.log('[WebView Bridge] Bridge initialized successfully');
     }
 
-    private onDOMReady() {
-        initImageClickHandlers();
-        initBookmarkNotFoundHandlers();
+    private async onDOMReady() {
+        await this.defaultHandler.run();
 
-        // 通知 native bridge DOM 已加载完成
         postToNativeBridge({
             type: 'domReady'
         });
 
         console.log('[WebView Bridge] DOM ready event sent to native bridge');
+    }
+
+    public requestInfoPack(): void {
+        postToNativeBridge({ type: 'requestInfoPack' });
+    }
+
+    public receiveInfoPack(infoPackJson: string): void {
+        try {
+            const infoPack: InfoPack = JSON.parse(infoPackJson);
+            this.infoPackHandler.run(infoPack);
+        } catch (error) {
+            console.error('[WebView Bridge] Failed to parse info pack:', error);
+        }
     }
 
     public postMessage = postToNativeBridge;
