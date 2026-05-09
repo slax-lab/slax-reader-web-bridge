@@ -11,33 +11,44 @@ export class WechatHeaderProcessor implements DOMProcessor {
     }
 
     process(context: ProcessorContext): void {
-        const spans = context.document.querySelectorAll('span#meta_content_hide_info')
+        const doc = context.document
 
-        spans.forEach(span => {
-            const p = span.parentElement
-            if (!p || p.tagName.toLowerCase() !== 'p') return
+        const isFirstElementChain = (el: Element): boolean => {
+            let current: Element | null = el
+            while (current) {
+                const parent: Element | null = current.parentElement
+                if (!parent) return false
 
-            const children = Array.from(p.children)
-            let score = 0
+                const isContainer =
+                    parent.tagName.toLowerCase() === 'body' ||
+                    (parent.tagName.toLowerCase() === 'div' && parent.classList.contains('html-text'))
 
-            if (p.parentElement?.tagName.toLowerCase() === 'div'
-                && p.parentElement.classList.contains('img-content')) {
-                score++
+                if (isContainer) {
+                    return parent.firstElementChild === current
+                }
+
+                if (parent.firstElementChild !== current) return false
+                current = parent
             }
+            return false
+        }
 
-            if (children[0]?.tagName.toLowerCase() === 'span'
-                && children[0].id === 'copyright_logo') {
-                score++
+        const hideP = (anchor: Element): void => {
+            const p = anchor.closest('p')
+            if (p && isFirstElementChain(p)) {
+                ;(p as HTMLElement).style.visibility = 'hidden'
             }
+        }
 
-            if (children[2]?.tagName.toLowerCase() === 'span'
-                && children[2].id === 'profileBt') {
-                score++
-            }
+        const metaSpan = doc.querySelector('span#meta_content_hide_info')
+        if (metaSpan) {
+            hideP(metaSpan)
+            return
+        }
 
-            if (score >= 2) {
-                p.remove()
-            }
-        })
+        const fallback = doc.querySelector('span#profileBt') || doc.querySelector('span#copyright_logo')
+        if (fallback) {
+            hideP(fallback)
+        }
     }
 }
