@@ -17,6 +17,7 @@ export class SlaxWebViewBridge {
     // handler
     private defaultHandler: DefaultDOMHandler;
     private infoPackHandler: InfoPackDOMHandler;
+    private infoPackReceived = false;
 
     // selection 相关状态
     private selectionMonitor: SelectionMonitor | null = null;
@@ -59,6 +60,12 @@ export class SlaxWebViewBridge {
 
         this.requestInfoPack();
 
+        setTimeout(() => {
+            if (!this.infoPackReceived) {
+                console.warn('[WebView Bridge] InfoPack response timeout, skipping infoPack processors');
+            }
+        }, 5000);
+
         console.log('[WebView Bridge] DOM ready event sent to native bridge');
     }
 
@@ -67,6 +74,7 @@ export class SlaxWebViewBridge {
     }
 
     public receiveInfoPack(infoPackJson: string): void {
+        this.infoPackReceived = true;
         try {
             const infoPack: InfoPack = JSON.parse(infoPackJson);
             this.infoPackHandler.run(infoPack);
