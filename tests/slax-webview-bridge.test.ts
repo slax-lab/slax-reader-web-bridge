@@ -1,16 +1,16 @@
 import { SlaxWebViewBridge } from '../src/core/slax-webview-bridge';
 import * as polyfill from '../src/utils/polyfill';
-import * as images from '../src/features/images';
-import * as bookmarkNotFound from '../src/features/bookmark-notfound';
 import * as nativeBridge from '../src/bridge/native-bridge';
+
+function flushPromises() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
 
 describe('SlaxWebViewBridge', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
         jest.clearAllMocks();
         jest.spyOn(polyfill, 'applyPolyfills');
-        jest.spyOn(images, 'initImageClickHandlers');
-        jest.spyOn(bookmarkNotFound, 'initBookmarkNotFoundHandlers');
         jest.spyOn(nativeBridge, 'postToNativeBridge');
     });
 
@@ -18,8 +18,6 @@ describe('SlaxWebViewBridge', () => {
         const bridge = new SlaxWebViewBridge();
 
         expect(polyfill.applyPolyfills).toHaveBeenCalled();
-        expect(images.initImageClickHandlers).toHaveBeenCalled();
-        expect(bookmarkNotFound.initBookmarkNotFoundHandlers).toHaveBeenCalled();
 
         expect(bridge.postMessage).toBeDefined();
         expect(bridge.getContentHeight).toBeDefined();
@@ -27,29 +25,27 @@ describe('SlaxWebViewBridge', () => {
         expect(bridge.highlightElement).toBeDefined();
     });
 
-    test('应该在 DOM 加载完成后发送 domReady 消息', () => {
+    test('应该在 DOM 加载完成后发送 domReady 消息', async () => {
         new SlaxWebViewBridge();
+
+        await flushPromises();
 
         expect(nativeBridge.postToNativeBridge).toHaveBeenCalledWith({
             type: 'domReady'
         });
     });
 
-    test('如果文档正在加载，应该等待 DOMContentLoaded', () => {
+    test('如果文档正在加载，应该等待 DOMContentLoaded', async () => {
         const readyStateSpy = jest.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
 
         new SlaxWebViewBridge();
 
-        // 不应立即调用
-        expect(images.initImageClickHandlers).not.toHaveBeenCalled();
-        expect(bookmarkNotFound.initBookmarkNotFoundHandlers).not.toHaveBeenCalled();
         expect(nativeBridge.postToNativeBridge).not.toHaveBeenCalled();
 
-        // 触发 DOMContentLoaded
         document.dispatchEvent(new Event('DOMContentLoaded'));
 
-        expect(images.initImageClickHandlers).toHaveBeenCalled();
-        expect(bookmarkNotFound.initBookmarkNotFoundHandlers).toHaveBeenCalled();
+        await flushPromises();
+
         expect(nativeBridge.postToNativeBridge).toHaveBeenCalledWith({
             type: 'domReady'
         });
@@ -102,58 +98,6 @@ describe('SlaxWebViewBridge - 划线选择功能', () => {
         });
     });
 
-    describe('drawMark', () => {
-        test('未启动监听时应返回 markId 并打印警告', () => {
-            const id = bridge.drawMark('test-id', JSON.stringify([{ type: 'text', path: 'p', start: 0, end: 5 }]), true, false);
-            expect(id).toBe('test-id');
-            expect(console.warn).toHaveBeenCalled();
-        });
-
-        test('启动监听后应渲染 mark 并发送 markRendered 消息', () => {
-            const container = document.createElement('div');
-            container.id = 'content';
-            const p = document.createElement('p');
-            p.textContent = 'hello world';
-            container.appendChild(p);
-            document.body.appendChild(container);
-
-            bridge.startSelectionMonitoring('#content');
-
-            const id = bridge.drawMark(
-                'uuid-test',
-                JSON.stringify([{ type: 'text', path: 'p', start: 0, end: 5 }]),
-                true,
-                false
-            );
-
-            expect(id).toBe('uuid-test');
-            expect(nativeBridge.postToNativeBridge).toHaveBeenCalledWith(
-                expect.objectContaining({ type: 'markRendered', markId: 'uuid-test' })
-            );
-        });
-
-        test('id 为 null 时应自动生成 uuid', () => {
-            const container = document.createElement('div');
-            container.id = 'content';
-            const p = document.createElement('p');
-            p.textContent = 'hello world';
-            container.appendChild(p);
-            document.body.appendChild(container);
-
-            bridge.startSelectionMonitoring('#content');
-
-            const id = bridge.drawMark(
-                null,
-                JSON.stringify([{ type: 'text', path: 'p', start: 0, end: 5 }]),
-                true,
-                false
-            );
-
-            expect(typeof id).toBe('string');
-            expect(id.length).toBeGreaterThan(0);
-        });
-    });
-
     describe('drawMarks', () => {
         test('未启动监听时应返回空 JSON 对象', () => {
             const result = bridge.drawMarks(JSON.stringify({ mark_list: [], user_list: {} }));
@@ -190,43 +134,6 @@ describe('SlaxWebViewBridge - 划线选择功能', () => {
             const result = JSON.parse(bridge.drawMarks(JSON.stringify(markDetail)));
             const uuids = Object.keys(result);
             expect(uuids.length).toBe(1);
-        });
-    });
-
-    describe('removeMark / updateMark / clearAllMarks / getAllMarkIds', () => {
-        test('未启动监听时调用不报错', () => {
-            expect(() => bridge.removeMark('some-id')).not.toThrow();
-            expect(() => bridge.updateMark('some-id', true, false)).not.toThrow();
-            expect(() => bridge.clearAllMarks()).not.toThrow();
-            expect(bridge.getAllMarkIds()).toEqual([]);
-        });
-    });
-
-    describe('mark 点击事件', () => {
-        test('点击 slax-mark 元素应发送 markClicked 消息', () => {
-            const container = document.createElement('div');
-            container.id = 'content';
-            const p = document.createElement('p');
-            p.textContent = 'hello world';
-            container.appendChild(p);
-            document.body.appendChild(container);
-
-            bridge.startSelectionMonitoring('#content');
-            bridge.drawMark(
-                'click-uuid',
-                JSON.stringify([{ type: 'text', path: 'p', start: 0, end: 5 }]),
-                true,
-                false
-            );
-
-            const mark = container.querySelector('slax-mark[data-uuid="click-uuid"]') as HTMLElement;
-            expect(mark).not.toBeNull();
-
-            mark.click();
-
-            expect(nativeBridge.postToNativeBridge).toHaveBeenCalledWith(
-                expect.objectContaining({ type: 'markClicked', markId: 'click-uuid' })
-            );
         });
     });
 

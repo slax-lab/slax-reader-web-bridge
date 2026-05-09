@@ -88,10 +88,13 @@ describe('SelectionMonitor', () => {
             const range = document.createRange();
             range.setStart(p.firstChild!, 0);
             range.setEnd(p.firstChild!, 5);
+            range.getBoundingClientRect = jest.fn().mockReturnValue({ left: 0, top: 0, right: 50, bottom: 20, width: 50, height: 20, x: 0, y: 0 });
 
             const mockSelection = {
                 rangeCount: 1,
                 getRangeAt: () => range,
+                removeAllRanges: jest.fn(),
+                addRange: jest.fn(),
             } as any;
             jest.spyOn(window, 'getSelection').mockReturnValue(mockSelection);
 
@@ -157,6 +160,10 @@ describe('SelectionMonitor', () => {
     });
 
     describe('回调数据结构', () => {
+        function mockRangeBoundingRect(range: Range) {
+            range.getBoundingClientRect = jest.fn().mockReturnValue({ left: 0, top: 0, right: 50, bottom: 20, width: 50, height: 20, x: 0, y: 0 });
+        }
+
         test('应包含 paths、approx、position 字段', () => {
             const callback = jest.fn();
             monitor.start(callback);
@@ -168,6 +175,7 @@ describe('SelectionMonitor', () => {
             const range = document.createRange();
             range.setStart(p.firstChild!, 0);
             range.setEnd(p.firstChild!, 5);
+            mockRangeBoundingRect(range);
 
             jest.spyOn(window, 'getSelection').mockReturnValue({
                 rangeCount: 1,
@@ -200,6 +208,7 @@ describe('SelectionMonitor', () => {
             const range = document.createRange();
             range.setStart(p.firstChild!, 0);
             range.setEnd(p.firstChild!, 5);
+            mockRangeBoundingRect(range);
 
             jest.spyOn(window, 'getSelection').mockReturnValue({
                 rangeCount: 1,

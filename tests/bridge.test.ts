@@ -36,6 +36,6 @@ describe('Native Bridge', () => {
         const result = postToNativeBridge(payload);
 
         expect(result).toBe(false);
-        expect(console.warn).toHaveBeenCalledWith('Native bridge not available');
+        expect(console.warn).toHaveBeenCalledWith('[NativeBridge] Native bridge not available, platform:', 'unknown');
     });
 });

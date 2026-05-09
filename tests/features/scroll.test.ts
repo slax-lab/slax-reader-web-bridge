@@ -56,18 +56,22 @@ describe('滚动功能 (Scroll Feature)', () => {
         test('应该找到并滚动到元素', () => {
             const element = document.createElement('div');
             const range = document.createRange();
+            range.getBoundingClientRect = jest.fn().mockReturnValue({
+                top: 100, height: 50, width: 100, left: 0, right: 100, bottom: 150, x: 0, y: 100, toJSON: () => {}
+            });
             jest.spyOn(search, 'findMatchingElement').mockReturnValue({ element, range });
-            
-            // 模拟 scrollToElement 行为（因为我们无法轻易 spy 同一模块内的导出函数）
-            // 但我们可以检查是否触发了特定平台的逻辑。
-            // 为了简单起见，假设是 iOS 来检查 scrollIntoView
+
             jest.spyOn(platformUtils, 'detectPlatform').mockReturnValue('ios');
-            element.scrollIntoView = jest.fn();
+            Object.defineProperty(document.body, 'scrollHeight', { value: 1000, configurable: true });
+            Object.defineProperty(document.documentElement, 'scrollHeight', { value: 1000, configurable: true });
 
             const result = scrollToAnchor('test-anchor');
 
             expect(search.findMatchingElement).toHaveBeenCalledWith('test-anchor');
-            expect(element.scrollIntoView).toHaveBeenCalled();
+            expect(nativeBridge.postToNativeBridge).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'scrollToPosition',
+                percentage: expect.any(Number)
+            }));
             expect(result).toBe(true);
         });
 
