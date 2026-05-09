@@ -57,6 +57,8 @@ export class SlaxWebViewBridge {
             type: 'domReady'
         });
 
+        this.requestInfoPack();
+
         console.log('[WebView Bridge] DOM ready event sent to native bridge');
     }
 

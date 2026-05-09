@@ -6,8 +6,8 @@ export class WechatHeaderProcessor implements DOMProcessor {
     match(context: ProcessorContext): boolean {
         if (!context.infoPack) return false
 
-        const url = String(context.infoPack.url ?? context.infoPack.source ?? '')
-        return url.includes('mp.weixin.qq.com')
+        const metadataUrl = String(context.infoPack.metadataUrl ?? '')
+        return metadataUrl.includes('mp.weixin.qq.com')
     }
 
     process(context: ProcessorContext): void {

@@ -1,4 +1,4 @@
-export type InfoPack = any
+export type InfoPack = Record<string, string | number | boolean | null>
 
 export interface ProcessorContext {
     document: Document
