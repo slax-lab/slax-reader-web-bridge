@@ -6,10 +6,10 @@
 
 ```bash
 # 运行所有测试
-npm test
+pnpm test
 
 # 监听模式（开发时使用）
-npm test -- --watch
+pnpm test -- --watch
 ```
 
 ## 目录结构
@@ -17,17 +17,21 @@ npm test -- --watch
 ```
 tests/
 ├── setup.ts                         # 全局测试配置和 Mock 初始化
+├── tsconfig.json                    # 测试专用 TypeScript 配置
 ├── bridge.test.ts                   # 基础 Bridge 通信测试
 ├── slax-webview-bridge.test.ts      # 主类初始化与 selection 集成测试
-└── features/                        # 各个功能模块的测试
-    ├── content.test.ts              # 内容高度计算
-    ├── highlight.test.ts            # 文本高亮
-    ├── images.test.ts               # 图片点击处理
-    ├── scroll.test.ts               # 滚动定位
-    ├── search.test.ts               # 搜索与模糊匹配
-    ├── selection-monitor.test.ts    # 文本选区监听
-    ├── mark-renderer.test.ts        # 单个 mark 渲染
-    └── mark-manager.test.ts         # 批量 mark 管理
+├── features/                        # 各个功能模块的测试
+│   ├── content.test.ts              # 内容高度计算
+│   ├── highlight.test.ts            # 文本高亮
+│   ├── images.test.ts               # 图片点击处理（旧版 features/images.ts）
+│   ├── scroll.test.ts               # 滚动定位
+│   ├── search.test.ts               # 搜索与模糊匹配
+│   ├── selection-monitor.test.ts    # 文本选区监听
+│   ├── mark-renderer.test.ts        # 单个 mark 渲染
+│   └── mark-manager.test.ts         # 批量 mark 管理
+└── handlers/                        # DOM 处理器测试
+    └── processors/
+        └── image-click.processor.test.ts  # ImageClickProcessor 测试
 ```
 
 ## 测试详情
@@ -47,11 +51,11 @@ tests/
 ### 3. 主类初始化与集成 (`slax-webview-bridge.test.ts`)
 - **目标**: 验证 `SlaxWebViewBridge` 类的实例化过程，以及 selection / mark 能力的桥接集成。
 - **覆盖场景**:
-  - 验证 Polyfill 和图片点击监听器是否被调用。
+  - 验证 Polyfill 是否被调用。
   - 验证核心方法 (`postMessage`, `getContentHeight` 等) 是否正确暴露。
-  - **生命周期**: 验证当 `document.readyState` 为 `loading` 时，是否正确等待 `DOMContentLoaded` 事件触发后再初始化。
-  - **Selection 集成**: 验证 `startSelectionMonitoring`, `stopSelectionMonitoring`, `drawMark`, `drawMarks`, `removeMark`, `setCurrentUserId` 等方法的基础行为。
-  - **Native 消息**: 验证 `markRendered`, `markClicked` 等消息是否通过统一 `postToNativeBridge` 协议发送。
+  - **生命周期**: 验证当 `document.readyState` 为 `loading` 时，是否正确等待 `DOMContentLoaded` 事件触发后再初始化（异步 DOM Pipeline）。
+  - **Selection 集成**: 验证 `startSelectionMonitoring`, `stopSelectionMonitoring`, `drawMarks`, `setCurrentUserId` 等方法的基础行为。
+  - **Native 消息**: 验证 `markItemInfosChanged` 等消息是否通过统一 `postToNativeBridge` 协议发送。
 
 ### 4. 功能模块测试 (`features/`)
 
@@ -67,7 +71,7 @@ tests/
   - 验证定时器逻辑：高亮是否在指定时间后自动取消（使用 Jest Fake Timers）。
 
 #### 图片处理 (`images.test.ts`)
-- **测试点**: `initImageClickHandlers`
+- **测试点**: `initImageClickHandlers`（旧版 `features/images.ts`）
 - **逻辑**:
   - 模拟 DOM 中的图片元素。
   - 触发 `click` 事件，验证是否向 Native 发送了正确的 `imageClick` 消息。
@@ -112,11 +116,23 @@ tests/
   - 验证 `REPLY` 不会单独生成 uuid。
   - 验证 `removeMarkByUuid`, `clearAllMarks`, `getAllMarkIds` 等行为。
 
+### 5. DOM 处理器测试 (`handlers/processors/`)
+
+#### 图片点击处理器 (`image-click.processor.test.ts`)
+- **测试点**: `ImageClickProcessor`
+- **逻辑**:
+  - **match**: 验证有/无图片元素时的匹配行为。
+  - **无 src 图片过滤**: 验证无 `src` 的 `img` 元素被隐藏（`display: none`）、不绑定点击事件、不出现在 `allImages` 列表中、不添加 loading 类。
+  - **图片点击**: 验证点击事件是否正确发送 `imageClick` 消息，包含正确的图片列表和索引。
+  - **handleImageLoading**: 验证 `srcset` 清空、`referrerPolicy` 清空、loading class 添加/移除、尺寸过小图片隐藏、固定宽度设置、float 清除等行为。
+  - **unwrapImgAnchorsInTweet**: 验证 tweet 内的 `a > img` 解包逻辑。
+
 ## 编写新测试
 
 如果您添加了新的 Feature，请遵循以下步骤：
-1. 在 `tests/features/` 下创建对应的 `.test.ts` 文件。
+1. 在 `tests/features/` 或 `tests/handlers/processors/` 下创建对应的 `.test.ts` 文件。
 2. 使用 `describe` 和 `test` 描述测试用例。
 3. 如果需要模拟 Native 交互，请 spy `src/bridge/native-bridge.ts` 中的 `postToNativeBridge` 或直接检查 `window.NativeBridge` 的 mock 调用。
 4. 如果新功能依赖 DOM 结构，请尽量在单测中直接构造最小 DOM，而不是依赖 demo 页面。
-5. 运行 `npm test` 确保测试通过。
+5. 对于 jsdom 不支持的 API（如 `Range.getBoundingClientRect`、`Selection.removeAllRanges`），需在测试中手动 mock。
+6. 运行 `pnpm test` 确保测试通过。
