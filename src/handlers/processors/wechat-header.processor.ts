@@ -7,11 +7,11 @@ export class WechatHeaderProcessor implements DOMProcessor {
         if (!context.infoPack) return false
 
         const metadataUrl = String(context.infoPack.metadataUrl ?? '')
-        return metadataUrl.includes('mp.weixin.qq.com')
+        return metadataUrl.startsWith('https://mp.weixin.qq.com')
     }
 
     process(context: ProcessorContext): void {
-        const spans = context.document.querySelectorAll('span.meta_content_hide_info')
+        const spans = context.document.querySelectorAll('span#meta_content_hide_info')
 
         spans.forEach(span => {
             const p = span.parentElement
@@ -37,7 +37,6 @@ export class WechatHeaderProcessor implements DOMProcessor {
 
             if (score >= 2) {
                 p.remove()
-                console.log('[WechatHeaderProcessor] Removed wechat header element')
             }
         })
     }
