@@ -4,6 +4,9 @@ import { BookmarkNotFoundProcessor } from './processors/bookmark-notfound.proces
 import { SpanProcessor } from './processors/span.processor'
 import { ListProcessor } from './processors/list.processor'
 import { SvgProcessor } from './processors/svg.processor'
+import { BlankMarkProcessor } from './processors/blank-mark.processor'
+import { PreLineProcessor } from './processors/preline.processor'
+import { DetailsProcessor } from './processors/details.processor'
 
 export class DefaultDOMHandler {
     private pipeline: DOMPipeline
@@ -16,6 +19,9 @@ export class DefaultDOMHandler {
             new SvgProcessor(),
             new SpanProcessor(),
             new ListProcessor(),
+            new BlankMarkProcessor(),
+            new PreLineProcessor(),
+            new DetailsProcessor(),
         )
     }
 
