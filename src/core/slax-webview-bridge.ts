@@ -85,7 +85,15 @@ export class SlaxWebViewBridge {
 
     public postMessage = postToNativeBridge;
     public getContentHeight = getContentHeight;
-    public scrollToAnchor = scrollToAnchor;
+    public scrollToAnchor = (anchorText: string): boolean => {
+        const didScroll = scrollToAnchor(anchorText, () => {
+            this.selectionMonitor?.prepareForProgrammaticSelection();
+        });
+        if (didScroll) {
+            this.selectionMonitor?.suppressCurrentSelection();
+        }
+        return didScroll;
+    };
     public highlightElement = highlightElement;
     public findMatchingElement = findMatchingElement;
     public scrollToElement = scrollToElement;

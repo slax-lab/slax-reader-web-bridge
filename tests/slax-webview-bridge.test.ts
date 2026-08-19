@@ -1,6 +1,7 @@
 import { SlaxWebViewBridge } from '../src/core/slax-webview-bridge';
 import * as polyfill from '../src/utils/polyfill';
 import * as nativeBridge from '../src/bridge/native-bridge';
+import * as search from '../src/features/search';
 
 function flushPromises() {
     return new Promise(resolve => setTimeout(resolve, 0));
@@ -95,6 +96,90 @@ describe('SlaxWebViewBridge - 划线选择功能', () => {
     describe('stopSelectionMonitoring', () => {
         test('未启动时调用不报错', () => {
             expect(() => bridge.stopSelectionMonitoring()).not.toThrow();
+        });
+    });
+
+    describe('scrollToAnchor', () => {
+        test('应结束旧用户选区、抑制锚点选区，并恢复后续用户选择', () => {
+            jest.useFakeTimers();
+            try {
+                const container = document.createElement('div');
+                container.id = 'content';
+                const p = document.createElement('p');
+                p.textContent = 'old selection anchor next selection';
+                container.appendChild(p);
+                document.body.appendChild(container);
+                bridge.startSelectionMonitoring('#content');
+
+                const textNode = p.firstChild!;
+                const selection = window.getSelection()!;
+                const oldRange = document.createRange();
+                oldRange.setStart(textNode, 0);
+                oldRange.setEnd(textNode, 13);
+                oldRange.getBoundingClientRect = jest.fn().mockReturnValue({
+                    left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20, x: 0, y: 0
+                });
+                selection.removeAllRanges();
+                selection.addRange(oldRange);
+                document.dispatchEvent(new Event('selectionchange'));
+                jest.advanceTimersByTime(300);
+
+                const postSpy = nativeBridge.postToNativeBridge as jest.MockedFunction<typeof nativeBridge.postToNativeBridge>;
+                const selectedMessages = () => postSpy.mock.calls
+                    .map(([message]) => message)
+                    .filter(message => message.type === 'textSelected');
+                const deselectedMessages = () => postSpy.mock.calls
+                    .map(([message]) => message)
+                    .filter(message => message.type === 'textDeselected');
+                expect(selectedMessages()).toHaveLength(1);
+
+                const anchorRange = document.createRange();
+                anchorRange.setStart(textNode, 14);
+                anchorRange.setEnd(textNode, 20);
+                anchorRange.getBoundingClientRect = jest.fn().mockReturnValue({
+                    left: 100, top: 0, right: 150, bottom: 20, width: 50, height: 20, x: 100, y: 0
+                });
+                jest.spyOn(search, 'findMatchingElement').mockReturnValue({ element: p, range: anchorRange });
+
+                expect(bridge.scrollToAnchor('anchor')).toBe(true);
+                expect(deselectedMessages()).toHaveLength(1);
+                document.dispatchEvent(new Event('selectionchange'));
+                jest.advanceTimersByTime(300);
+                expect(selectedMessages()).toHaveLength(1);
+
+                const nextRange = document.createRange();
+                nextRange.setStart(textNode, 21);
+                nextRange.setEnd(textNode, 25);
+                nextRange.getBoundingClientRect = jest.fn().mockReturnValue({
+                    left: 160, top: 0, right: 200, bottom: 20, width: 40, height: 20, x: 160, y: 0
+                });
+                document.dispatchEvent(new MouseEvent('mousedown'));
+                selection.removeAllRanges();
+                selection.addRange(nextRange);
+                document.dispatchEvent(new Event('selectionchange'));
+                jest.advanceTimersByTime(300);
+                document.dispatchEvent(new MouseEvent('mouseup'));
+
+                expect(selectedMessages()).toHaveLength(2);
+                expect(deselectedMessages()).toHaveLength(1);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+
+        test('找不到锚点时应保留旧用户选区状态', () => {
+            const container = document.createElement('div');
+            container.id = 'content';
+            document.body.appendChild(container);
+            bridge.startSelectionMonitoring('#content');
+            const prepareSpy = jest.spyOn(
+                (bridge as unknown as { selectionMonitor: { prepareForProgrammaticSelection: () => void } }).selectionMonitor,
+                'prepareForProgrammaticSelection'
+            );
+            jest.spyOn(search, 'findMatchingElement').mockReturnValue(null);
+
+            expect(bridge.scrollToAnchor('missing')).toBe(false);
+            expect(prepareSpy).not.toHaveBeenCalled();
         });
     });
 

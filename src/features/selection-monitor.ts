@@ -14,6 +14,8 @@ export class SelectionMonitor {
   private onSelectionCallback?: (data: SelectionEventData) => void
   private onSelectionClearedCallback?: () => void
   private selectionChangeTimeout?: ReturnType<typeof setTimeout>
+  /** 程序创建且无需通知 Native 的选区 */
+  private suppressedSelectionRange: Range | null = null
   /** 用户手指/鼠标是否正在按下 */
   private isPointerDown: boolean = false
   /** 手指按下期间是否产生了待处理的选区变化 */
@@ -70,6 +72,7 @@ export class SelectionMonitor {
     this.lastSelectionText = ''
     this.isPointerDown = false
     this.hasPendingSelection = false
+    this.suppressedSelectionRange = null
     this.onSelectionCallback = undefined
     this.onSelectionClearedCallback = undefined
   }
@@ -80,6 +83,7 @@ export class SelectionMonitor {
   private handlePointerDown = (): void => {
     this.isPointerDown = true
     this.hasPendingSelection = false
+    this.suppressedSelectionRange = null
   }
 
   /**
@@ -129,6 +133,7 @@ export class SelectionMonitor {
   private processSelection(): void {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) {
+      this.suppressedSelectionRange = null
       this.clearLastSelection()
       return
     }
@@ -136,9 +141,16 @@ export class SelectionMonitor {
     const range = selection.getRangeAt(0)
 
     if (range.collapsed) {
+      this.suppressedSelectionRange = null
       this.clearLastSelection()
       return
     }
+
+    if (this.isSuppressedSelection(range)) {
+      this.lastSelectionText = ''
+      return
+    }
+    this.suppressedSelectionRange = null
 
     if (!this.container.contains(range.commonAncestorContainer)) {
       return
@@ -168,6 +180,38 @@ export class SelectionMonitor {
       this.lastSelectionText = ''
       this.onSelectionClearedCallback?.()
     }
+  }
+
+  /**
+   * 在程序替换当前选区前，结束已上报的用户选区状态。
+   */
+  prepareForProgrammaticSelection(): void {
+    if (this.selectionChangeTimeout) {
+      clearTimeout(this.selectionChangeTimeout)
+      this.selectionChangeTimeout = undefined
+    }
+    this.hasPendingSelection = false
+    this.suppressedSelectionRange = null
+    this.clearLastSelection()
+  }
+
+  /**
+   * 记录程序创建的当前选区，使本次 selectionchange 不通知 Native。
+   */
+  suppressCurrentSelection(): void {
+    const selection = window.getSelection()
+    this.suppressedSelectionRange = selection && selection.rangeCount > 0
+      ? selection.getRangeAt(0).cloneRange()
+      : null
+  }
+
+  private isSuppressedSelection(range: Range): boolean {
+    const suppressed = this.suppressedSelectionRange
+    return suppressed !== null &&
+      range.startContainer === suppressed.startContainer &&
+      range.startOffset === suppressed.startOffset &&
+      range.endContainer === suppressed.endContainer &&
+      range.endOffset === suppressed.endOffset
   }
 
   /**
@@ -355,6 +399,7 @@ export class SelectionMonitor {
    * 清除选择
    */
   clearSelection(): void {
+    this.suppressedSelectionRange = null
     const selection = window.getSelection()
     if (selection) {
       selection.removeAllRanges()

@@ -2,6 +2,7 @@ import { scrollToElement, scrollToAnchor } from '../../src/features/scroll';
 import * as platformUtils from '../../src/utils/platform';
 import * as nativeBridge from '../../src/bridge/native-bridge';
 import * as search from '../../src/features/search';
+import * as highlight from '../../src/features/highlight';
 
 describe('滚动功能 (Scroll Feature)', () => {
     beforeEach(() => {
@@ -75,12 +76,34 @@ describe('滚动功能 (Scroll Feature)', () => {
             expect(result).toBe(true);
         });
 
+        test('应该在确认找到锚点后、高亮前调用回调', () => {
+            const element = document.createElement('div');
+            const range = document.createRange();
+            range.getBoundingClientRect = jest.fn().mockReturnValue({
+                top: 100, height: 50, width: 100, left: 0, right: 100, bottom: 150, x: 0, y: 100, toJSON: () => {}
+            });
+            jest.spyOn(search, 'findMatchingElement').mockReturnValue({ element, range });
+            const beforeHighlight = jest.fn();
+            const highlightSpy = jest.spyOn(highlight, 'highlightElement');
+
+            const result = scrollToAnchor('test-anchor', beforeHighlight);
+
+            expect(result).toBe(true);
+            expect(beforeHighlight).toHaveBeenCalledTimes(1);
+            expect(beforeHighlight.mock.invocationCallOrder[0]).toBeLessThan(
+                highlightSpy.mock.invocationCallOrder[0]
+            );
+        });
+
         test('如果未找到则返回 false', () => {
             jest.spyOn(search, 'findMatchingElement').mockReturnValue(null);
 
-            const result = scrollToAnchor('unknown-anchor');
+            const beforeHighlight = jest.fn();
+
+            const result = scrollToAnchor('unknown-anchor', beforeHighlight);
 
             expect(result).toBe(false);
+            expect(beforeHighlight).not.toHaveBeenCalled();
         });
     });
 });

@@ -57,12 +57,13 @@ export function scrollToElement(target: { element?: HTMLElement | null, range?: 
 /**
  * 滚动到锚点文本对应的内容
  */
-export function scrollToAnchor(anchorText: string): boolean {
+export function scrollToAnchor(anchorText: string, beforeHighlight?: () => void): boolean {
     console.log(`[WebView Bridge] Start finding anchor: ${anchorText}`);
 
     const decodedAnchor = decodeURIComponent(anchorText);
     const match = findMatchingElement(decodedAnchor);
     if (match) {
+        beforeHighlight?.();
         highlightElement(match);
         scrollToElement(match);
         return true;

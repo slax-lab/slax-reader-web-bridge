@@ -75,7 +75,91 @@ describe('SelectionMonitor', () => {
         });
     });
 
+    describe('prepareForProgrammaticSelection', () => {
+        test('应结束已上报的用户选区，且只通知一次清除', () => {
+            const callback = jest.fn();
+            const clearedCallback = jest.fn();
+            monitor.start(callback, clearedCallback);
+
+            const p = document.createElement('p');
+            const textNode = createTextNode('hello world', p);
+            container.appendChild(p);
+
+            const range = document.createRange();
+            range.setStart(textNode, 0);
+            range.setEnd(textNode, 5);
+            range.getBoundingClientRect = jest.fn().mockReturnValue({
+                left: 0, top: 0, right: 50, bottom: 20, width: 50, height: 20, x: 0, y: 0
+            });
+
+            jest.spyOn(window, 'getSelection').mockReturnValue({
+                rangeCount: 1,
+                getRangeAt: () => range,
+                toString: () => 'hello',
+                removeAllRanges: jest.fn(),
+                addRange: jest.fn(),
+            } as any);
+
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.runAllTimers();
+            expect(callback).toHaveBeenCalledTimes(1);
+
+            monitor.prepareForProgrammaticSelection();
+            monitor.prepareForProgrammaticSelection();
+
+            expect(clearedCallback).toHaveBeenCalledTimes(1);
+        });
+
+        test('应取消尚未处理的用户选区变化', () => {
+            const callback = jest.fn();
+            monitor.start(callback);
+
+            document.dispatchEvent(new Event('selectionchange'));
+            monitor.prepareForProgrammaticSelection();
+            jest.runAllTimers();
+
+            expect(callback).not.toHaveBeenCalled();
+        });
+    });
+
     describe('selectionchange 防抖', () => {
+        test('程序选区不触发回调，下一次用户操作恢复正常监听', () => {
+            const callback = jest.fn();
+            monitor.start(callback);
+
+            const p = document.createElement('p');
+            p.textContent = 'hello world';
+            container.appendChild(p);
+
+            const range = document.createRange();
+            range.setStart(p.firstChild!, 0);
+            range.setEnd(p.firstChild!, 5);
+            range.getBoundingClientRect = jest.fn().mockReturnValue({
+                left: 0, top: 0, right: 50, bottom: 20, width: 50, height: 20, x: 0, y: 0
+            });
+
+            jest.spyOn(window, 'getSelection').mockReturnValue({
+                rangeCount: 1,
+                getRangeAt: () => range,
+                removeAllRanges: jest.fn(),
+                addRange: jest.fn(),
+                toString: () => 'hello',
+            } as any);
+
+            monitor.suppressCurrentSelection();
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.runAllTimers();
+
+            expect(callback).not.toHaveBeenCalled();
+
+            document.dispatchEvent(new MouseEvent('mousedown'));
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.runAllTimers();
+            document.dispatchEvent(new MouseEvent('mouseup'));
+
+            expect(callback).toHaveBeenCalledTimes(1);
+        });
+
         test('300ms 内多次触发只回调一次', () => {
             const callback = jest.fn();
             monitor.start(callback);
