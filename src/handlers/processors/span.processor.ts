@@ -14,7 +14,7 @@ export class SpanProcessor implements DOMProcessor {
             const el = span as HTMLSpanElement
             if (
                 el.textContent?.replace(/ /g, '').trim().length === 0 &&
-                !el.querySelector('img[src], video[src], picture:has(source[srcset]), svg, canvas')
+                !el.querySelector('img[src], video[src], picture:has(source[srcset]), svg, canvas, br')
             ) {
                 el.style.display = 'none'
             }

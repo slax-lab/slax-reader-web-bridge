@@ -336,3 +336,19 @@ selection / mark 相关逻辑执行失败时触发。
 ## 📄 License
 
 MIT
+
+
+## Common article preprocessing
+
+The default DOM pipeline preserves line-break spans, opens ordinary details while leaving `.slax-yt-contents` unchanged, constrains fixed iframe widths and classifies tables without wrapping their annotation-bearing nodes. The existing native image-preview protocol remains in use. Image processing catches cached completions, recovers replaced sources and preserves authored sizing until source metadata is available.
+
+Provide the original page URL through `receiveInfoPack(JSON.stringify({ metadataUrl: originalUrl }))`. This resolves relative links against the article URL rather than the WebView's synthetic origin and applies WeChat image style preservation. Fragments and non-HTTP schemes retain their original href. Metadata can arrive after `domReady`; repeated metadata does not accumulate image click handlers or resize observers.
+
+The host stylesheet supplies table presentation, for example:
+
+```css
+table { display: block; width: 100%; max-width: 100%; overflow-x: auto; }
+table.slax-table-fit { display: table; }
+```
+
+Call `window.SlaxWebViewBridge.destroy()` when releasing a document. It stops selection monitoring, processor pipelines, image handlers, resize observers and queued layout frames. A document `pagehide` also performs this cleanup. This is separate from `stopSelectionMonitoring()`, which can be used while the document stays active. Media-specific processors are unchanged.

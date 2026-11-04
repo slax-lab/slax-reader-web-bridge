@@ -97,12 +97,9 @@ export class SelectionMonitor {
     }
   }
 
-  /**
-   * iOS 长按选择文本时，系统接管触摸会触发 touchcancel 而非 touchend。
-   * 此时释放 isPointerDown，让后续 selectionchange 防抖正常触发回调。
-   */
+  /** Native selection takeover can cancel touch after its debounce has already settled. */
   private handleTouchCancel = (): void => {
-    this.isPointerDown = false
+    this.handlePointerUp()
   }
 
   /**

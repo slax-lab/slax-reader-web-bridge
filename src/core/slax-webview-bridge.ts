@@ -18,6 +18,10 @@ export class SlaxWebViewBridge {
     private defaultHandler: DefaultDOMHandler;
     private infoPackHandler: InfoPackDOMHandler;
     private infoPackReceived = false;
+    private disposed = false;
+    private infoPackTimeout?: ReturnType<typeof setTimeout>;
+    private onDocumentReady = () => {void this.onDOMReady();};
+    private onPageHide = () => this.destroy();
 
     // selection 相关状态
     private selectionMonitor: SelectionMonitor | null = null;
@@ -29,7 +33,7 @@ export class SlaxWebViewBridge {
 
     constructor() {
         this.defaultHandler = new DefaultDOMHandler();
-        this.infoPackHandler = new InfoPackDOMHandler();
+        this.infoPackHandler = new InfoPackDOMHandler(this.defaultHandler.images);
         this.init();
     }
 
@@ -39,11 +43,10 @@ export class SlaxWebViewBridge {
 
     private init() {
         applyPolyfills();
+        window.addEventListener('pagehide', this.onPageHide, {once: true});
 
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                this.onDOMReady();
-            });
+            document.addEventListener('DOMContentLoaded', this.onDocumentReady, {once: true});
         } else {
             this.onDOMReady();
         }
@@ -53,6 +56,7 @@ export class SlaxWebViewBridge {
 
     private async onDOMReady() {
         await this.defaultHandler.run();
+        if (this.disposed) return;
 
         postToNativeBridge({
             type: 'domReady'
@@ -60,7 +64,7 @@ export class SlaxWebViewBridge {
 
         this.requestInfoPack();
 
-        setTimeout(() => {
+        this.infoPackTimeout = setTimeout(() => {
             if (!this.infoPackReceived) {
                 console.warn('[WebView Bridge] InfoPack response timeout, skipping infoPack processors');
             }
@@ -74,6 +78,8 @@ export class SlaxWebViewBridge {
     }
 
     public receiveInfoPack(infoPackJson: string): void {
+        if (this.disposed) return;
+        clearTimeout(this.infoPackTimeout);
         this.infoPackReceived = true;
         try {
             const infoPack: InfoPack = JSON.parse(infoPackJson);
@@ -81,6 +87,18 @@ export class SlaxWebViewBridge {
         } catch (error) {
             console.error('[WebView Bridge] Failed to parse info pack:', error);
         }
+    }
+
+    /** Release document-scoped processors before the native host releases the WebView. */
+    public destroy(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        clearTimeout(this.infoPackTimeout);
+        document.removeEventListener('DOMContentLoaded', this.onDocumentReady);
+        window.removeEventListener('pagehide', this.onPageHide);
+        this.stopSelectionMonitoring();
+        this.infoPackHandler.dispose();
+        this.defaultHandler.dispose();
     }
 
     public postMessage = postToNativeBridge;

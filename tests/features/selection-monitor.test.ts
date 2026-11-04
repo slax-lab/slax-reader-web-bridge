@@ -123,6 +123,43 @@ describe('SelectionMonitor', () => {
     });
 
     describe('selectionchange 防抖', () => {
+        test.each([150, 350])('native touch cancellation delivers the selection once after %ims', elapsed => {
+            const callback = jest.fn();
+            monitor.start(callback);
+            const text = createTextNode('hello world', container);
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 5);
+            range.getBoundingClientRect = jest.fn().mockReturnValue({
+                left: 0, top: 0, right: 50, bottom: 20, width: 50, height: 20, x: 0, y: 0,
+            });
+            jest.spyOn(window, 'getSelection').mockReturnValue({
+                rangeCount: 1, getRangeAt: () => range, toString: () => range.toString(),
+                removeAllRanges: jest.fn(), addRange: jest.fn(),
+            } as any);
+
+            document.dispatchEvent(new Event('touchstart'));
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.advanceTimersByTime(elapsed);
+            expect(callback).not.toHaveBeenCalled();
+            document.dispatchEvent(new Event('touchcancel'));
+            jest.advanceTimersByTime(400);
+            expect(callback).toHaveBeenCalledTimes(1);
+
+            document.dispatchEvent(new Event('touchend'));
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.runAllTimers();
+            expect(callback).toHaveBeenCalledTimes(1);
+
+            document.dispatchEvent(new Event('touchstart'));
+            range.setStart(text, 6);
+            range.setEnd(text, 11);
+            document.dispatchEvent(new Event('selectionchange'));
+            jest.advanceTimersByTime(350);
+            document.dispatchEvent(new Event('touchend'));
+            expect(callback).toHaveBeenCalledTimes(2);
+        });
+
         test('程序选区不触发回调，下一次用户操作恢复正常监听', () => {
             const callback = jest.fn();
             monitor.start(callback);
