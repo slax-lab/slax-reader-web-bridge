@@ -177,7 +177,7 @@ describe('ImageClickProcessor', () => {
             img.onload!(new Event('load'))
 
             expect(img.classList.contains('slax-image-loading')).toBe(false)
-            expect(img.getAttribute('style')).toBe('display: none;')
+            expect(img.style.display).toBe('none')
         })
 
         test('onload: 宽度小于 200 的图片应设置固定宽度', () => {
@@ -197,7 +197,8 @@ describe('ImageClickProcessor', () => {
             processor.process(createContext())
             img.onload!(new Event('load'))
 
-            expect(img.getAttribute('style')).toBe('height: auto !important;')
+            expect(img.style.height).toBe('auto')
+            expect(img.style.padding).toBe('0px')
         })
 
         test('onerror: 应移除 loading 类并隐藏图片', () => {

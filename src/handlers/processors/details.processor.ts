@@ -12,7 +12,7 @@ export class DetailsProcessor implements DOMProcessor {
     const details = Array.from(context.document.querySelectorAll('details')) as HTMLDetailsElement[]
 
     details.forEach(detail => {
-      if (detail.querySelector('summary')) {
+      if (detail.querySelector('summary') && !detail.classList.contains('slax-yt-contents')) {
         detail.open = true
       }
     })
